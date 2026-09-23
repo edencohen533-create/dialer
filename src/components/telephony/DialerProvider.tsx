@@ -13,7 +13,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { api, ApiClientError } from "@/lib/client/api";
-import type { CallDto, DialerStateDto, DialMode, LeadDto, OutcomeKey } from "@/lib/client/types";
+import type { CallDto, DialerStateDto, DialMode, LeadDto, MonitorDto, OutcomeKey } from "@/lib/client/types";
 
 type PhoneStatus = "idle" | "connecting" | "ready" | "error" | "simulation" | "disconnected";
 type MicPermission = "unknown" | "granted" | "denied";
@@ -92,6 +92,19 @@ interface Ctx {
   rejectInbound: () => Promise<void>;
   sessionSummary: SessionSummary | null;
   dismissSummary: () => void;
+  /** Supervisor (manager) listen / whisper. */
+  supervisor: {
+    monitor: MonitorDto | null;
+    /** Browser-side media state of the supervisor leg: none | ringing | active | ended. */
+    media: "none" | "ringing" | "active" | "ended";
+    start: (callId: string) => Promise<MonitorDto | null>;
+    stop: () => Promise<void>;
+    whisperOn: () => Promise<void>;
+    whisperOff: () => Promise<void>;
+    refresh: () => Promise<MonitorDto | null>;
+    setVolume: (v: number) => void;
+    volume: number;
+  };
 }
 
 export interface SessionSummary {
@@ -130,6 +143,11 @@ export function DialerProvider({ children }: { children: ReactNode }) {
   const [sessionTakenOver, setSessionTakenOver] = useState(false);
   const [countdown, setCountdown] = useState<Ctx["countdown"]>(null);
   const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(null);
+  const [monitor, setMonitor] = useState<MonitorDto | null>(null);
+  const [supMedia, setSupMedia] = useState<"none" | "ringing" | "active" | "ended">("none");
+  const [volume, setVolumeState] = useState(1);
+  const monitorRef = useRef<MonitorDto | null>(null);
+  const whisperingRef = useRef(false);
   const browserSessionId = useMemo(() => getBrowserSessionId(), []);
 
   // ── Phone (WebRTC) state ─────────────────────────────────────────────
@@ -178,6 +196,11 @@ export function DialerProvider({ children }: { children: ReactNode }) {
       setError(null);
       if (s.session && s.session.ownedByThisTab === false) setSessionTakenOver(true);
       else setSessionTakenOver(false);
+      if (s.monitor) { monitorRef.current = s.monitor; setMonitor(s.monitor); }
+      else if (monitorRef.current && !monitorRef.current.endedAt) {
+        // server says no active monitor any more (call ended / left elsewhere) – fetch the final record once
+        api.get<MonitorDto>(`/api/manager/monitor/${monitorRef.current.id}`).then((m) => { monitorRef.current = m; setMonitor(m); whisperingRef.current = false; setSupMedia((x) => (x === "active" || x === "ringing" ? "ended" : x)); }).catch(() => { monitorRef.current = null; setMonitor(null); });
+      }
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) return;
       setError("אין חיבור לשרת");
@@ -321,9 +344,20 @@ export function DialerProvider({ children }: { children: ReactNode }) {
           const s = stateRef.current;
           const ownsSession = s?.session ? s.session.ownedByThisTab !== false : true;
           const ownsCall = s?.activeCall ? ownsCallRef.current.has(s.activeCall.id) || ownsSession : ownsSession;
+          // Supervisor leg: the manager asked to listen – answer and keep the mic muted (provider enforces monitor role too).
+          const m = monitorRef.current;
+          if (m && !m.endedAt && m.status === "connecting") {
+            setSupMedia("ringing");
+            call.answer().then(() => { try { call.muteAudio(); } catch { /* ignore */ } }).catch(() => setPhoneError("לא ניתן לענות ל-leg ההאזנה"));
+            return;
+          }
           // Customer-initiated (inbound) calls are NOT auto-answered – the agent accepts or rejects in the UI.
           const isCustomerInbound = s?.activeCall?.direction === "inbound";
           if (ownsCall && !isCustomerInbound) call.answer().catch(() => setPhoneError("לא ניתן לענות לשיחה בדפדפן"));
+        }
+        if (monitorRef.current && !monitorRef.current.endedAt) {
+          if (call.state === "active") setSupMedia("active");
+          if (call.state === "hangup" || call.state === "destroy") setSupMedia("ended");
         }
         if (call.state === "hangup" || call.state === "destroy") {
           if (sdkCallRef.current?.id === call.id) sdkCallRef.current = null;
@@ -697,6 +731,78 @@ export function DialerProvider({ children }: { children: ReactNode }) {
     }
   }, [sessionTakenOver, state?.session, state?.activeCall, cancelCountdown]);
 
+  const supRefresh = useCallback(async () => {
+    const m = monitorRef.current;
+    if (!m) return null;
+    try {
+      const fresh = await api.get<MonitorDto>(`/api/manager/monitor/${m.id}`);
+      monitorRef.current = fresh;
+      setMonitor(fresh);
+      if (fresh.endedAt) { whisperingRef.current = false; setSupMedia((x) => (x === "none" ? x : "ended")); }
+      return fresh;
+    } catch {
+      return m;
+    }
+  }, []);
+  const supStart = useCallback(async (callId: string) => {
+    if (monitorRef.current && !monitorRef.current.endedAt) {
+      if (monitorRef.current.callId === callId) return monitorRef.current;
+      throw new ApiClientError("אתה כבר מחובר לשיחה אחרת – צא ממנה קודם", 409, "monitor_active");
+    }
+    setSupMedia("none");
+    const m = await api.post<MonitorDto>("/api/manager/monitor", { callId });
+    monitorRef.current = m;
+    setMonitor(m);
+    if (phoneStatus === "simulation") setSupMedia("active"); // no real media in simulation – marked as such in the UI
+    return m;
+  }, [phoneStatus]);
+  const supStop = useCallback(async () => {
+    const m = monitorRef.current;
+    if (!m) return;
+    whisperingRef.current = false;
+    try { sdkCallRef.current?.muteAudio(); } catch { /* ignore */ }
+    try { await sdkCallRef.current?.hangup(); } catch { /* server hangup below is authoritative */ }
+    try {
+      const done = await api.delete<MonitorDto>(`/api/manager/monitor/${m.id}`);
+      monitorRef.current = done;
+      setMonitor(done);
+    } finally {
+      setSupMedia("ended");
+      sdkCallRef.current = null;
+    }
+  }, []);
+  const supWhisperOn = useCallback(async () => {
+    const m = monitorRef.current;
+    if (!m || m.endedAt || m.status === "connecting" || whisperingRef.current) return;
+    whisperingRef.current = true;
+    const upd = await api.patch<MonitorDto>(`/api/manager/monitor/${m.id}`, { mode: "whisper" }); // provider-side role switch first
+    monitorRef.current = upd; setMonitor(upd);
+    if (whisperingRef.current) { try { sdkCallRef.current?.unmuteAudio(); } catch { /* ignore */ } }
+  }, []);
+  const supWhisperOff = useCallback(async () => {
+    const m = monitorRef.current;
+    try { sdkCallRef.current?.muteAudio(); } catch { /* ignore */ } // mic off immediately
+    if (!m || m.endedAt || !whisperingRef.current) return;
+    whisperingRef.current = false;
+    try {
+      const upd = await api.patch<MonitorDto>(`/api/manager/monitor/${m.id}`, { mode: "listen" });
+      monitorRef.current = upd; setMonitor(upd);
+    } catch { /* refresh will resync */ }
+  }, []);
+  const setVolume = useCallback((v: number) => {
+    setVolumeState(v);
+    const el = document.getElementById("remote-audio") as HTMLMediaElement | null;
+    if (el) el.volume = Math.max(0, Math.min(1, v));
+  }, []);
+  // Any loss of focus / page hide ends a whisper (mic must never stay open by accident).
+  useEffect(() => {
+    const off = () => { if (whisperingRef.current) supWhisperOff(); };
+    window.addEventListener("blur", off);
+    document.addEventListener("visibilitychange", off);
+    window.addEventListener("pagehide", off);
+    return () => { window.removeEventListener("blur", off); document.removeEventListener("visibilitychange", off); window.removeEventListener("pagehide", off); };
+  }, [supWhisperOff]);
+
   const value: Ctx = {
     state,
     loading,
@@ -738,6 +844,7 @@ export function DialerProvider({ children }: { children: ReactNode }) {
     rejectInbound,
     sessionSummary,
     dismissSummary: () => setSessionSummary(null),
+    supervisor: { monitor, media: supMedia, start: supStart, stop: supStop, whisperOn: supWhisperOn, whisperOff: supWhisperOff, refresh: supRefresh, setVolume, volume },
   };
 
   return (

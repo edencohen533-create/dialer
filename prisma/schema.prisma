@@ -97,6 +97,19 @@ enum CallDirection {
   inbound
 }
 
+enum MonitorMode {
+  listen
+  whisper
+}
+
+enum MonitorStatus {
+  connecting
+  listening
+  whispering
+  ended
+  failed
+}
+
 enum RecordingStatus {
   none
   recording
@@ -186,6 +199,7 @@ model User {
   auditLogs    AuditLog[]
   noteDrafts   NoteDraft[]
   dncEntries   DncEntry[]
+  monitors     CallMonitor[]
 
   @@unique([businessId, email])
   @@index([businessId, presence])
@@ -369,6 +383,8 @@ model Call {
   idempotencyKey String            @unique @map("idempotency_key")
   /// Inbound: how the call was routed / why it was missed.
   routingNote    String?           @map("routing_note")
+  /// Provider conference that hosts both legs (required for supervisor listen/whisper).
+  conferenceId   String?           @map("conference_id")
   /// = userId while the call is alive, NULL once ended. Unique ⇒ one live call per agent.
   activeForUser  String?           @unique @map("active_for_user")
 
@@ -423,6 +439,7 @@ model Call {
   phoneNumber PhoneNumber?   @relation(fields: [phoneNumberId], references: [id])
   events      TelephonyEvent[]
   tasks       Task[]
+  monitors    CallMonitor[]
 
   @@index([businessId, createdAt])
   @@index([userId, createdAt])
@@ -432,6 +449,31 @@ model Call {
   @@index([agentLegId])
   @@index([leadLegId])
   @@map("calls")
+}
+
+/// A supervisor (manager) joined to a live call: listen-only or whisper-to-agent.
+model CallMonitor {
+  id         String        @id @default(cuid())
+  businessId String        @map("business_id")
+  callId     String        @map("call_id")
+  managerId  String        @map("manager_id")
+  /// = managerId while active, NULL once ended. Unique ⇒ one active monitor per manager.
+  activeForManager String? @unique @map("active_for_manager")
+  mode       MonitorMode   @default(listen)
+  status     MonitorStatus @default(connecting)
+  legId      String?       @map("leg_id")
+  error      String?
+  startedAt  DateTime      @default(now()) @map("started_at")
+  joinedAt   DateTime?     @map("joined_at")
+  endedAt    DateTime?     @map("ended_at")
+  lastEventAt DateTime?    @map("last_event_at")
+
+  call    Call @relation(fields: [callId], references: [id], onDelete: Cascade)
+  manager User @relation(fields: [managerId], references: [id])
+
+  @@index([callId, status])
+  @@index([legId])
+  @@map("call_monitors")
 }
 
 /// Raw provider events. Unique providerEventId ⇒ duplicate webhooks are ignored.

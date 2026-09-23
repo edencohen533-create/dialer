@@ -7,6 +7,7 @@ import { currentSession, reapStaleSessions } from "@/lib/dialer/session";
 import { currentLockedLead, listQueueStats } from "@/lib/dialer/queue";
 import { activeCallFor, pendingWrapUpFor } from "@/lib/dialer/calls";
 import { getBusinessSettings } from "@/lib/settings";
+import { activeMonitorFor } from "@/lib/dialer/monitor";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,9 @@ export const GET = withAuth(async ({ req, user }) => {
     prisma.user.findUnique({ where: { id: user.id }, select: { presence: true, sipUsername: true } }),
   ]);
   const wrapUp = activeCall ? null : await pendingWrapUpFor(user.id);
+  const monitor = user.role === "agent" ? null : await activeMonitorFor(user.id);
+  // Presence of the browser: the poll itself proves the tab is alive (throttled write).
+  await prisma.user.updateMany({ where: { id: user.id, OR: [{ lastSeenAt: null }, { lastSeenAt: { lt: new Date(Date.now() - 20_000) } }] }, data: { lastSeenAt: new Date() } });
   const queue = session?.listId ? await listQueueStats(session.listId) : null;
   const script = lead?.list.scriptId
     ? await prisma.script.findFirst({ where: { id: lead.list.scriptId, businessId: user.businessId }, select: { id: true, title: true, body: true } })
@@ -39,6 +43,7 @@ export const GET = withAuth(async ({ req, user }) => {
     lead,
     activeCall,
     wrapUpCall: wrapUp,
+    monitor,
     presence: me?.presence ?? "offline",
     sipUsername: me?.sipUsername ?? null,
     queue,

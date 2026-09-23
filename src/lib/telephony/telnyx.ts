@@ -98,9 +98,8 @@ export const telnyxAdapter: TelephonyAdapter = {
       client_state: encodeClientState({ callId: input.callId, leg: "agent" }),
       command_id: `${input.callId}-agent`,
     };
-    if (input.linkToLegId) {
-      body.link_to = input.linkToLegId;
-      body.bridge_on_answer = true;
+    if (input.conferenceId) {
+      body.conference_config = { id: input.conferenceId, start_conference_on_enter: true, end_conference_on_exit: true, beep_enabled: "never" };
     }
     const r = await telnyxFetch<DialResponse>("/calls", { method: "POST", body: JSON.stringify(body) });
     return { legId: r.data.call_control_id, providerSessionId: r.data.call_session_id };
@@ -110,15 +109,44 @@ export const telnyxAdapter: TelephonyAdapter = {
     await telnyxFetch(`/calls/${encodeURIComponent(legId)}/actions/answer`, { method: "POST", body: JSON.stringify({ command_id: commandId }) });
   },
 
+  async createConference(legId, name, commandId) {
+    const r = await telnyxFetch<{ data: { id: string } }>("/conferences", {
+      method: "POST",
+      body: JSON.stringify({ call_control_id: legId, name, start_conference_on_create: true, beep_enabled: "never", comfort_noise: true, command_id: commandId }),
+    });
+    return r.data.id;
+  },
+
+  async dialSupervisor(input) {
+    const r = await telnyxFetch<DialResponse>("/calls", {
+      method: "POST",
+      body: JSON.stringify({
+        connection_id: env("TELNYX_CALL_CONTROL_APP_ID"),
+        to: `sip:${input.sipUsername}@sip.telnyx.com`,
+        from: input.fromE164,
+        from_display_name: "Supervisor",
+        timeout_secs: input.timeoutSeconds,
+        client_state: encodeClientState({ callId: input.callId, leg: "supervisor", monitorId: input.monitorId }),
+        command_id: `${input.monitorId}-supervisor`,
+        // Joins as a monitoring supervisor: hears everyone, is heard by no one. Whisper target pre-registered.
+        conference_config: { id: input.conferenceId, supervisor_role: "monitor", whisper_call_control_ids: [input.whisperToLegId], beep_enabled: "never", end_conference_on_exit: false, soft_end_conference_on_exit: false },
+      }),
+    });
+    return { legId: r.data.call_control_id, providerSessionId: r.data.call_session_id };
+  },
+
+  async switchSupervisorRole(legId, role) {
+    await telnyxFetch(`/calls/${encodeURIComponent(legId)}/actions/switch_supervisor_role`, { method: "POST", body: JSON.stringify({ role }) });
+  },
+
   async dialLead(input: DialLeadInput): Promise<DialResult> {
     const body: Record<string, unknown> = {
       connection_id: env("TELNYX_CALL_CONTROL_APP_ID"),
       to: input.toE164,
       from: input.fromE164,
       timeout_secs: input.timeoutSeconds,
-      // Bridge to the (already answered) agent leg automatically when the lead answers.
-      link_to: input.agentLegId,
-      bridge_on_answer: true,
+      // The agent leg already sits in a conference; the lead joins it on answer (supervisors can join the same conference).
+      conference_config: { id: input.conferenceId, start_conference_on_enter: true, end_conference_on_exit: true, beep_enabled: "never" },
       client_state: encodeClientState({ callId: input.callId, leg: "lead" }),
       command_id: `${input.callId}-lead`,
     };
@@ -225,6 +253,7 @@ interface TelnyxWebhook {
     event_type?: string;
     occurred_at?: string;
     payload?: {
+      conference_id?: string;
       call_control_id?: string;
       call_leg_id?: string;
       call_session_id?: string;
@@ -254,6 +283,8 @@ export function parseTelnyxWebhook(body: TelnyxWebhook): ProviderEvent | null {
     "call.hangup": "leg.hangup",
     "call.machine.detection.ended": "leg.machine_detection",
     "call.recording.saved": "recording.saved",
+    "conference.participant.joined": "conference.joined",
+    "conference.participant.left": "conference.left",
   };
   let recordingDurationMs: number | undefined;
   if (p.recording_started_at && p.recording_ended_at) {
@@ -265,7 +296,9 @@ export function parseTelnyxWebhook(body: TelnyxWebhook): ProviderEvent | null {
     type: map[d.event_type] ?? "other",
     legId: p.call_control_id,
     callId: typeof cs?.callId === "string" ? cs.callId : undefined,
-    leg: cs?.leg === "agent" || cs?.leg === "lead" ? cs.leg : undefined,
+    leg: cs?.leg === "agent" || cs?.leg === "lead" || cs?.leg === "supervisor" ? cs.leg : undefined,
+    monitorId: typeof cs?.monitorId === "string" ? cs.monitorId : undefined,
+    conferenceId: p.conference_id,
     direction: p.direction,
     from: p.from,
     to: p.to,

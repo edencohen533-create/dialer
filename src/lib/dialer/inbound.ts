@@ -89,15 +89,17 @@ export async function handleInboundInitiated(ev: ProviderEvent) {
 
   try {
     await telephony.answerLeg(ev.legId, `${call.id}-answer-inbound`);
+    // Customer leg becomes the conference creator; the agent (and any supervisor) join it.
+    const conferenceId = await telephony.createConference(ev.legId, call.id, `${call.id}-conf`);
     const r = await telephony.dialAgent({
       callId: call.id,
       sipUsername: agent.sipUsername!,
       fromE164: fromE164 ?? number.e164,
       timeoutSeconds: AGENT_RING_SECONDS,
-      linkToLegId: ev.legId,
+      conferenceId,
       callerDisplay: contact?.fullName ?? fromE164 ?? "שיחה נכנסת",
     });
-    call = await prisma.call.update({ where: { id: call.id }, data: { agentLegId: r.legId, providerSessionId: r.providerSessionId } });
+    call = await prisma.call.update({ where: { id: call.id }, data: { agentLegId: r.legId, providerSessionId: r.providerSessionId, conferenceId } });
   } catch (err) {
     console.error("[inbound] agent leg failed", err);
     await prisma.call.update({ where: { id: call.id }, data: { status: "failed", endedAt: new Date(), telephonyResult: "failed", failureReason: String((err as Error).message).slice(0, 200), activeForUser: null, talkSeconds: 0 } });

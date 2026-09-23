@@ -88,12 +88,27 @@ export interface TelephonyStatus {
   telnyx: { configured: boolean; missing: string[] };
 }
 
+export interface MonitorDto {
+  id: string;
+  callId: string;
+  managerId: string;
+  mode: "listen" | "whisper";
+  status: "connecting" | "listening" | "whispering" | "ended" | "failed";
+  legId: string | null;
+  error: string | null;
+  startedAt: string;
+  joinedAt: string | null;
+  endedAt: string | null;
+  call?: { id: string; userId: string; endedAt: string | null; answeredAt: string | null; talkSeconds?: number | null; toE164: string; direction: string; contactId: string | null; contact: { fullName: string } | null; user: { fullName: string } };
+}
+
 export interface DialerStateDto {
   now: string;
   session: SessionDto | null;
   lead: LeadDto | null;
   activeCall: CallDto | null;
   wrapUpCall: CallDto | null;
+  monitor: MonitorDto | null;
   presence: string;
   sipUsername: string | null;
   queue: { byStatus: Record<string, number>; dueNow: number; dueIgnoringWindow: number; total: number; unavailable: { notDueYet: number; inProgress: number; exhausted: number; completed: number; dnc: number; removed: number; outsideDialWindow: boolean; listPaused: boolean; listInactive: boolean } } | null;

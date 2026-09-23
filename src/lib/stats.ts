@@ -28,6 +28,10 @@ export interface StatsFilter {
 
 interface Bucket {
   dials: number;
+  /** Outbound attempts the provider actually created (agent leg id present). */
+  outboundAttempts: number;
+  outboundAnswered: number;
+  dialSeconds: number;
   connected: number;
   contactIds: Set<string>;
   talkSeconds: number;
@@ -41,11 +45,15 @@ interface Bucket {
   inboundMissed: number;
   outcomes: Partial<Record<OutcomeKey, number>>;
 }
-const empty = (): Bucket => ({ dials: 0, connected: 0, contactIds: new Set(), talkSeconds: 0, ringSeconds: 0, rang: 0, wrapSeconds: 0, wrapped: 0, gapSeconds: 0, gaps: 0, inbound: 0, inboundMissed: 0, outcomes: {} });
+const empty = (): Bucket => ({ dials: 0, outboundAttempts: 0, outboundAnswered: 0, dialSeconds: 0, connected: 0, contactIds: new Set(), talkSeconds: 0, ringSeconds: 0, rang: 0, wrapSeconds: 0, wrapped: 0, gapSeconds: 0, gaps: 0, inbound: 0, inboundMissed: 0, outcomes: {} });
 
 function finish(b: Bucket) {
   return {
     dials: b.dials,
+    outboundAttempts: b.outboundAttempts,
+    outboundAnswered: b.outboundAnswered,
+    outboundAnswerRate: b.outboundAttempts ? Math.round((b.outboundAnswered / b.outboundAttempts) * 100) : 0,
+    dialSeconds: Math.round(b.dialSeconds),
     connected: b.connected,
     uniqueContacts: b.contactIds.size,
     connectRate: b.dials ? Math.round((b.connected / b.dials) * 100) : 0,
@@ -68,7 +76,7 @@ export async function agentMetrics(f: StatsFilter) {
   const calls = await prisma.call.findMany({
     where,
     orderBy: { createdAt: "asc" },
-    select: { userId: true, sessionId: true, listId: true, contactId: true, direction: true, createdAt: true, ringingAt: true, answeredAt: true, endedAt: true, talkSeconds: true, outcome: true, outcomeSavedAt: true, outcomeNote: true, contact: { select: { source: true } } },
+    select: { userId: true, sessionId: true, listId: true, contactId: true, direction: true, agentLegId: true, createdAt: true, ringingAt: true, answeredAt: true, endedAt: true, talkSeconds: true, outcome: true, outcomeSavedAt: true, outcomeNote: true, contact: { select: { source: true } } },
   });
   const per = new Map<string, Bucket>();
   const byList = new Map<string, Bucket>();
@@ -78,6 +86,12 @@ export async function agentMetrics(f: StatsFilter) {
 
   const add = (b: Bucket, c: (typeof calls)[number]) => {
     b.dials++;
+    if (c.direction === "outbound" && c.agentLegId) {
+      b.outboundAttempts++;
+      if (c.answeredAt) b.outboundAnswered++;
+      const end = c.answeredAt ?? c.endedAt;
+      if (end) b.dialSeconds += Math.max(0, (end.getTime() - c.createdAt.getTime()) / 1000);
+    }
     if (c.direction === "inbound") {
       b.inbound++;
       if (!c.answeredAt) b.inboundMissed++;

@@ -21,7 +21,8 @@ type Status = "עבר" | "נכשל" | "חסר במימוש" | "חסום לבדי
 interface Row { id: string; area: string; scenario: string; expected: string; actual: string; status: Status; evidence: string; mode: "mock" | "n/a" }
 const rows: Row[] = [];
 const ONLY = (process.env.QA_ONLY ?? "").split(",").map((x) => x.trim()).filter(Boolean);
-const skip = (id: string) => ONLY.length > 0 && !ONLY.some((p) => id.startsWith(p));
+// QA_ONLY entries are exact ids (e.g. "W10") or whole letter-groups (e.g. "W").
+const skip = (id: string) => ONLY.length > 0 && !ONLY.some((p) => p === id || (/^[A-Z]+$/.test(p) && id.replace(/\d+$/, "") === p));
 async function t(id: string, area: string, scenario: string, expected: string, fn: () => Promise<{ pass: boolean; actual: string; evidence?: string }>, mode: Row["mode"] = "mock") {
   if (skip(id)) return;
   try {
@@ -1064,6 +1065,157 @@ async function main() {
   blocked("N20", "טלפוניה מתקדמת", "החזקה, העברה, ועידה, האזנה/לחישה", "פעולות זמינות רק אם ממומשות", "לא ממומש: Telnyx תומך דרך Conferences API; דורש החלטת מוצר ומימוש נפרד – לא מוצגים כפתורים");
   blocked("N21", "AI ותמלול", "תמלול, סיכום, זיהוי התנגדויות", "הצעות בלבד עם מקור", "אין ספק תמלול מחובר – לא מיוצרים סיכומים מדומים");
   blocked("N22", "WhatsApp", "הודעת המשך לפי כללי החיבור", "", "אין חיבור WhatsApp במערכת זו");
+
+
+  // ═══ Live floor + listen/whisper (R) ══════════════════════════════════
+  await Promise.all([cleanupAgent(B3), cleanupAgent(B4)]);
+  await MB.post("/api/telephony/token"); await LB.post("/api/telephony/token"); // managers need a browser registration (mock)
+  const stopAny = async (c: Client) => { const m = await c.get("/api/manager/monitor"); if (m.data?.id) await c.del(`/api/manager/monitor/${m.data.id}`); };
+  await stopAny(MB); await stopAny(LB);
+
+  await t("R1", "האזנה", "הרשאות: נציג, מנהל מעסק אחר, מנהל בלי צוות, האזנה לעצמך", "403 / 404 / 403 / 400 – גם בקריאת API ישירה", async () => {
+    const c = await B3.post("/api/dialer/call", { idempotencyKey: key(), mode: "manual", phone: "0521000005" });
+    await waitStatus(B3, c.data.id, ["answered"]);
+    const r1 = await B3.post("/api/manager/monitor", { callId: c.data.id });
+    const r2 = await MA.post("/api/manager/monitor", { callId: c.data.id });
+    const r3 = await LB.post("/api/manager/monitor", { callId: c.data.id });
+    const own = await MB.post("/api/dialer/call", { idempotencyKey: key(), mode: "manual", phone: "0521000004" });
+    const r4 = await MB.post("/api/manager/monitor", { callId: own.data.id });
+    await endCall(MB, own.data.id);
+    await endCall(B3, c.data.id);
+    return { pass: r1.status === 403 && r2.status === 404 && r3.status === 403 && r4.code === "self_monitor", actual: `agent ${r1.status}, other business ${r2.status}, no-team manager ${r3.status}, self ${r4.status}/${r4.code}` };
+  });
+
+  await t("R2", "האזנה", "הצטרפות רק אחרי מענה; 'מאזין' רק אחרי אישור חיבור", "לפני מענה 409; אחרי: connecting → listening (הדמיה ~1s); audit started+joined", async () => {
+    const c = await B3.post("/api/dialer/call", { idempotencyKey: key(), mode: "manual", phone: "0521000005" });
+    const early = await MB.post("/api/manager/monitor", { callId: c.data.id });
+    await waitStatus(B3, c.data.id, ["answered"]);
+    const m = await MB.post("/api/manager/monitor", { callId: c.data.id });
+    const s0 = m.data?.status;
+    let st = m.data; const t0 = Date.now();
+    while (st && st.status === "connecting" && Date.now() - t0 < 8000) { await sleep(400); st = (await MB.get(`/api/manager/monitor/${m.data.id}`)).data; }
+    const live = await MB.get("/api/manager/live");
+    const row = live.data.rows.find((r: any) => r.id === a3.id);
+    const audits = await db.auditLog.findMany({ where: { entityType: "monitor", entityId: m.data.id }, select: { action: true } });
+    await MB.del(`/api/manager/monitor/${m.data.id}`);
+    await endCall(B3, c.data.id);
+    return { pass: early.code === "call_not_answered" && s0 === "connecting" && st?.status === "listening" && Boolean(st.joinedAt) && row?.call?.monitors?.[0]?.status === "listening" && audits.some((a) => a.action === "monitor.started") && audits.some((a) => a.action === "monitor.joined"), actual: `early=${early.code}; start=${s0} → ${st?.status} after ${Date.now() - t0}ms; live row shows monitor=${row?.call?.monitors?.[0]?.status}; audit=${audits.map((a) => a.action).join(",")}` };
+  });
+
+  await t("R3", "האזנה", "לחיצה כפולה ושיחה אחת בכל פעם", "אותו monitor id; שיחה אחרת → 409 monitor_active עם המזהה הקיים", async () => {
+    const c1 = await B3.post("/api/dialer/call", { idempotencyKey: key(), mode: "manual", phone: "0521000005" });
+    const c2 = await B4.post("/api/dialer/call", { idempotencyKey: key(), mode: "manual", phone: "0521000003" });
+    await waitStatus(B3, c1.data.id, ["answered"]); await waitStatus(B4, c2.data.id, ["answered"]);
+    const [m1, m2] = await Promise.all([MB.post("/api/manager/monitor", { callId: c1.data.id }), MB.post("/api/manager/monitor", { callId: c1.data.id })]);
+    const other = await MB.post("/api/manager/monitor", { callId: c2.data.id });
+    const active = await db.callMonitor.count({ where: { managerId: (await db.user.findFirst({ where: { email: "manager@qa-b.local" } }))!.id, endedAt: null } });
+    await MB.del(`/api/manager/monitor/${m1.data?.id ?? m2.data?.id}`);
+    await endCall(B3, c1.data.id); await endCall(B4, c2.data.id);
+    const ok = [m1, m2].filter((m) => m.status === 200);
+    return { pass: ok.length === 2 && m1.data.id === m2.data.id && other.code === "monitor_active" && other.json.details?.monitorId === m1.data.id && active === 1, actual: `double: ${m1.status}/${m2.status} same=${m1.data?.id === m2.data?.id}; other call → ${other.status}/${other.code}; active monitors=${active}` };
+  });
+
+  await t("R4", "לחישה", "מעבר מפורש ללחישה וחזרה; יציאה לא פוגעת בשיחה", "whispering + audit whisper_on; listen + whisper_off; DELETE → ended והשיחה של הנציג עדיין חיה", async () => {
+    const c = await B3.post("/api/dialer/call", { idempotencyKey: key(), mode: "manual", phone: "0521000005" });
+    await waitStatus(B3, c.data.id, ["answered"]);
+    const m = await MB.post("/api/manager/monitor", { callId: c.data.id });
+    await sleep(1500); await MB.get(`/api/manager/monitor/${m.data.id}`);
+    const w = await MB.patch(`/api/manager/monitor/${m.data.id}`, { mode: "whisper" });
+    const l = await MB.patch(`/api/manager/monitor/${m.data.id}`, { mode: "listen" });
+    const agentTry = await B3.patch(`/api/manager/monitor/${m.data.id}`, { mode: "whisper" });
+    const stop = await MB.del(`/api/manager/monitor/${m.data.id}`);
+    const callAfter = await db.call.findUnique({ where: { id: c.data.id } });
+    const audits = (await db.auditLog.findMany({ where: { entityType: "monitor", entityId: m.data.id }, orderBy: { createdAt: "asc" }, select: { action: true } })).map((a) => a.action);
+    await endCall(B3, c.data.id);
+    return { pass: w.data?.status === "whispering" && w.data.mode === "whisper" && l.data?.status === "listening" && agentTry.status === 403 && stop.data?.status === "ended" && callAfter?.endedAt === null && audits.includes("monitor.whisper_on") && audits.includes("monitor.whisper_off") && audits.includes("monitor.ended"), actual: `whisper→${w.data?.status}, listen→${l.data?.status}, agent switch ${agentTry.status}, stop→${stop.data?.status}, call alive=${callAfter?.endedAt === null}; audit=${audits.join(",")}` };
+  });
+
+  await t("R5", "האזנה", "השיחה מסתיימת בזמן האזנה / בזמן התחברות", "monitor → ended (call_ended) בשני המקרים; ללא שגיאה", async () => {
+    const c = await B3.post("/api/dialer/call", { idempotencyKey: key(), mode: "manual", phone: "0521000005" });
+    await waitStatus(B3, c.data.id, ["answered"]);
+    const m = await MB.post("/api/manager/monitor", { callId: c.data.id });
+    await sleep(1500); await MB.get(`/api/manager/monitor/${m.data.id}`);
+    await B3.post(`/api/dialer/call/${c.data.id}/hangup`); await waitEnd(B3, c.data.id);
+    const after = await MB.get(`/api/manager/monitor/${m.data.id}`);
+    await B3.post(`/api/dialer/call/${c.data.id}/outcome`, { outcome: "answered_not_interested" });
+    // connecting case
+    const c2 = await B3.post("/api/dialer/call", { idempotencyKey: key(), mode: "manual", phone: "0521000005" });
+    await waitStatus(B3, c2.data.id, ["answered"]);
+    const m2 = await MB.post("/api/manager/monitor", { callId: c2.data.id });
+    await B3.post(`/api/dialer/call/${c2.data.id}/hangup`); await waitEnd(B3, c2.data.id);
+    const after2 = await MB.get(`/api/manager/monitor/${m2.data.id}`);
+    await B3.post(`/api/dialer/call/${c2.data.id}/outcome`, { outcome: "answered_not_interested" });
+    const mine = await MB.get("/api/manager/monitor");
+    return { pass: after.data.status === "ended" && after.data.error === "call_ended" && after2.data.status === "ended" && mine.data === null, actual: `while listening → ${after.data.status}/${after.data.error}; while connecting (${m2.data.status}) → ${after2.data.status}; active monitor after=${mine.data}` };
+  });
+
+  await t("R6", "זמן אמת", "עדכון תוך ~2ש׳: חיוג, מענה, ניתוק משתקפים ב-/live; מונה השיחות עולה פעם אחת", "השורה עוברת מחייג→בשיחה→תיעוד; outboundAttempts +1 בלבד", async () => {
+    const before = (await MB.get("/api/manager/live")).data.today.outboundAttempts;
+    const c = await B3.post("/api/dialer/call", { idempotencyKey: key(), mode: "manual", phone: "0521000005" });
+    const seen: Record<string, number> = {};
+    const t0 = Date.now();
+    let answeredAtServer: number | null = null; // provider timestamp of the answer
+    let answeredProcessedAt: number | null = null; // when the server finished applying it (DB visible)
+    while (Date.now() - t0 < 40000) {
+      const st = (await B3.get(`/api/dialer/call/${c.data.id}`)).data; // advances the simulation
+      if (st.answeredAt && !answeredAtServer) { answeredAtServer = new Date(st.answeredAt).getTime(); answeredProcessedAt = Date.now(); }
+      const reqStart = Date.now();
+      const live = (await MB.get("/api/manager/live")).data;
+      const row = live.rows.find((r: any) => r.id === a3.id);
+      if (row && !(row.status in seen)) seen[row.status] = reqStart; // freshness is measured at request start
+      if (row?.status === "in_call") break;
+      await sleep(300);
+    }
+    const lagAnswered = answeredProcessedAt && seen.in_call ? Math.max(0, seen.in_call - answeredProcessedAt) : null;
+    const lagFromProvider = answeredAtServer && seen.in_call ? seen.in_call - answeredAtServer : null;
+    await B3.post(`/api/dialer/call/${c.data.id}/hangup`); await waitEnd(B3, c.data.id);
+    await B3.get("/api/dialer/state"); // the agent's browser would be polling – refreshes lastSeenAt
+    const t1 = Date.now(); let wrap = false;
+    while (Date.now() - t1 < 6000) { const row = (await MB.get("/api/manager/live")).data.rows.find((r: any) => r.id === a3.id); if (row?.status === "wrap_up") { wrap = true; break; } await sleep(300); }
+    await B3.post(`/api/dialer/call/${c.data.id}/outcome`, { outcome: "answered_not_interested" });
+    const after = (await MB.get("/api/manager/live")).data.today.outboundAttempts;
+    return { pass: Boolean(seen.in_call) && (seen.dialing !== undefined || seen.ringing !== undefined) && wrap && after === before + 1 && (lagAnswered === null || lagAnswered < 2500), actual: `statuses seen: ${Object.keys(seen).join("→")}; lag DB-visible→live=${lagAnswered}ms; provider-timestamp→live=${lagFromProvider}ms (כולל עיבוד הסימולציה מקומית מול Neon); wrap_up=${wrap}; attempts ${before}→${after}` };
+  });
+
+  await t("R7", "זמן אמת", "אירוע ישן לא מחזיר שיחה שהסתיימה; אירוע כפול לא מכפיל מונים", "answered מאוחר → נשאר ended; attempts ללא שינוי", async () => {
+    const c = await B3.post("/api/dialer/call", { idempotencyKey: key(), mode: "manual", phone: "0521000010" });
+    const e = await waitEnd(B3, c.data.id);
+    await B3.post(`/api/dialer/call/${c.data.id}/outcome`, { outcome: "no_answer" });
+    const before = (await MB.get("/api/manager/live")).data.today;
+    const late = hook("evt-r7-" + key(), "call.answered", c.data.id, "lead", `mock-lead-${c.data.id}`);
+    await anon.req("POST", "/api/webhooks/telnyx", late, sign(late));
+    await anon.req("POST", "/api/webhooks/telnyx", late, sign(late));
+    const dbc = await db.call.findUnique({ where: { id: c.data.id } });
+    const after = (await MB.get("/api/manager/live")).data.today;
+    const row = (await MB.get("/api/manager/live")).data.rows.find((r: any) => r.id === a3.id);
+    return { pass: e.endedAt && dbc?.status === "ended" && dbc.answeredAt === null && after.outboundAttempts === before.outboundAttempts && after.outboundAnswered === before.outboundAnswered && row.status !== "in_call", actual: `call stays ${dbc?.status}, answeredAt=${dbc?.answeredAt}; attempts ${before.outboundAttempts}→${after.outboundAttempts}; answered ${before.outboundAnswered}→${after.outboundAnswered}; row=${row.status}` };
+  });
+
+  await t("R8", "מדדים", "מדדי היום מול נתוני בדיקה ידועים (יוצאות = ניסיונות שהספק יצר; נכשלו לפני יצירה בנפרד)", "", async () => {
+    const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+    const live = (await MB.get("/api/manager/live")).data.today;
+    const out = await db.call.findMany({ where: { businessId: bizB, direction: "outbound", createdAt: { gte: startOfToday } }, select: { agentLegId: true, answeredAt: true, status: true, outcome: true, talkSeconds: true } });
+    const attempts = out.filter((c) => c.agentLegId).length;
+    const answered = out.filter((c) => c.agentLegId && c.answeredAt).length;
+    const failedPre = out.filter((c) => !c.agentLegId && c.status === "failed").length;
+    const allCalls = await db.call.findMany({ where: { businessId: bizB, createdAt: { gte: startOfToday } }, select: { outcome: true, answeredAt: true, talkSeconds: true } });
+    const sales = allCalls.filter((c) => c.outcome === "sale").length;
+    const talk = allCalls.filter((c) => c.answeredAt).reduce((a, c) => a + (c.talkSeconds ?? 0), 0);
+    return { pass: live.outboundAttempts === attempts && live.outboundAnswered === answered && live.failedBeforeProvider === failedPre && live.outboundAnswerRate === (attempts ? Math.round((answered / attempts) * 100) : 0) && live.sales === sales && live.talkSeconds === talk, actual: `attempts ${live.outboundAttempts}/${attempts}, answered ${live.outboundAnswered}/${answered}, failedPre ${live.failedBeforeProvider}/${failedPre}, rate ${live.outboundAnswerRate}%, sales ${live.sales}/${sales}, talk ${live.talkSeconds}/${talk}` };
+  });
+
+  await t("R9", "סטטוסים", "דפדפן מנותק אך השיחה חיה → מוצגים שני הנתונים; אין סיום שיחה בגלל אובדן heartbeat", "status=in_call, connected=false; call.endedAt null", async () => {
+    const c = await B3.post("/api/dialer/call", { idempotencyKey: key(), mode: "manual", phone: "0521000005" });
+    await waitStatus(B3, c.data.id, ["answered"]);
+    await db.user.update({ where: { id: a3.id }, data: { lastSeenAt: new Date(Date.now() - 5 * 60_000) } });
+    await db.dialerSession.updateMany({ where: { userId: a3.id, status: { in: ["active", "paused"] } }, data: { lastHeartbeatAt: new Date(Date.now() - 5 * 60_000) } });
+    await MB.get("/api/manager/dashboard"); // reaper runs – must not touch the live call
+    const row = (await MB.get("/api/manager/live")).data.rows.find((r: any) => r.id === a3.id);
+    const dbc = await db.call.findUnique({ where: { id: c.data.id } });
+    await endCall(B3, c.data.id);
+    return { pass: row.status === "in_call" && row.connected === false && dbc?.endedAt === null, actual: `status=${row.status} connected=${row.connected} call alive=${dbc?.endedAt === null}` };
+  });
+  blocked("R10", "האזנה", "בידוד אודיו: המנהל שומע את שני הצדדים, אף צד לא שומע אותו; בלחישה רק הנציג שומע", "נבדק בשלוש נקודות קצה אמיתיות", "אין חשבון Telnyx ומספר בדיקה. הבידוד נאכף אצל הספק (supervisor_role monitor/whisper + whisper_call_control_ids) – מאומת מול ה-OpenAPI בלבד");
 
   // ── output ──────────────────────────────────────────────────────────
   const summary = { total: rows.length, passed: rows.filter((r) => r.status === "עבר").length, failed: rows.filter((r) => r.status === "נכשל").length, blocked: rows.filter((r) => r.status === "חסום לבדיקה").length, missing: rows.filter((r) => r.status === "חסר במימוש").length };

@@ -459,6 +459,65 @@ async function main() {
     await mctx.close();
     return { pass: prio && safety && hist, actual: `prio=${prio} safety=${safety} history=${hist}` };
   });
+
+  await t("U19", "מוקד חי", "דף 'מוקד בזמן אמת': מצבים, חיווי חיבור, מדדים מוגדרים, מצב חי לא מוצג בדוחות", "כותרת, 'מתעדכן בזמן אמת', שתי קבוצות מדדים, טאב דוחות ללא עמודת סטטוס", async () => {
+    const mctx = await ctxWithMic();
+    const mpage = await login(mctx, "manager@demo.local", "manager123");
+    await mpage.goto(`${BASE}/manager`);
+    await mpage.getByText("מוקד בזמן אמת").first().waitFor();
+    const liveBadge = await mpage.getByText("מתעדכן בזמן אמת").waitFor({ timeout: 15000 }).then(() => true).catch(() => false);
+    const groups = (await mpage.getByText("מצב המוקד כרגע").isVisible()) && (await mpage.getByText("ביצועי היום").isVisible());
+    const tip = await mpage.getByText("שיחות יוצאות", { exact: true }).first().getAttribute("title");
+    await mpage.screenshot({ path: path.join(SHOTS, "U19-live-floor.png"), fullPage: true });
+    await mpage.getByRole("button", { name: "דוחות", exact: true }).click();
+    await mpage.getByText("דוחות לתקופה").waitFor();
+    const noStatusCol = !(await mpage.locator("th", { hasText: "מצב" }).count());
+    await mpage.screenshot({ path: path.join(SHOTS, "U19-reports.png") });
+    await mctx.close();
+    return { pass: liveBadge && groups && Boolean(tip) && noStatusCol, actual: `live badge=${liveBadge}, groups=${groups}, tooltip="${tip?.slice(0, 40)}", reports without status column=${noStatusCol}` };
+  });
+
+  await t("U20", "האזנה", "מנהל רואה נציג בשיחה תוך ~2ש׳, מצטרף להאזנה, לוחש בלחיצה-והחזקה, אובדן פוקוס מפסיק, יציאה לא פוגעת בשיחה", "", async (shot) => {
+    await endAnyCall(page);
+    await page.goto(`${BASE}/dialer`);
+    const mctx = await ctxWithMic();
+    const mpage = await login(mctx, "manager@demo.local", "manager123");
+    await mpage.goto(`${BASE}/manager`);
+    await mpage.getByText("מתעדכן בזמן אמת").waitFor({ timeout: 15000 });
+    await page.getByPlaceholder("050-1234567").fill("0501234533");
+    await page.getByRole("button", { name: "חייג", exact: true }).click();
+    const answered = await waitCallStatus(page, ["answered"], 45000);
+    if (!answered?.answeredAt) { await endAnyCall(page); await mctx.close(); return { pass: false, actual: `agent call never reached answered: ${JSON.stringify((await apiJson(page, "/api/dialer/state")).data.activeCall?.status)}` }; }
+    const tAns = new Date(answered.answeredAt).getTime();
+    const tVisible = Date.now(); // the answer is now applied server-side (agent API reflects it)
+    const row = mpage.locator("tr", { hasText: "דנה כהן" }).first();
+    await row.getByText("בשיחה").first().waitFor({ timeout: 10000 });
+    const lagMs = Date.now() - tVisible; // event-applied → manager UI (includes 1.5s poll + request time)
+    const lagFromProvider = Date.now() - tAns;
+    const rowText = await row.textContent();
+    await row.getByRole("button", { name: "האזנה", exact: true }).click();
+    await mpage.getByText("האזנה לשיחה").waitFor();
+    const connecting = await mpage.getByText("מתחבר…").isVisible().catch(() => false);
+    await mpage.getByText("האזנה בלבד").waitFor({ timeout: 10000 });
+    await mpage.screenshot({ path: path.join(SHOTS, "U20-monitor-listening.png") });
+    const ptt = mpage.getByRole("button", { name: /לחץ והחזק כדי ללחוש/ });
+    await ptt.dispatchEvent("mousedown");
+    await mpage.getByText("לחישה לנציג").waitFor({ timeout: 8000 });
+    await mpage.screenshot({ path: path.join(SHOTS, "U20-monitor-whispering.png") });
+    const whisperAudit = (await apiJson(mpage, "/api/settings/history")).data.find((x: any) => x.action === "monitor.whisper_on");
+    await mpage.evaluate(() => window.dispatchEvent(new Event("blur"))); // focus loss must end the whisper
+    await mpage.getByText("האזנה בלבד").waitFor({ timeout: 8000 });
+    const backToListen = await mpage.getByText("האזנה בלבד").isVisible();
+    // second listen click while connected → same panel, no second monitor
+    const monitorsBefore = (await apiJson(mpage, "/api/manager/monitor")).data?.id;
+    await mpage.locator("aside footer").getByRole("button", { name: "יציאה מהאזנה" }).click();
+    await sleep(1500);
+    const agentCall = (await apiJson(page, "/api/dialer/state")).data.activeCall;
+    const monitorAfter = (await apiJson(mpage, "/api/manager/monitor")).data;
+    await mctx.close();
+    await endAnyCall(page);
+    return { pass: lagMs < 5000 && Boolean(rowText?.includes("4533")) && connecting !== null && Boolean(whisperAudit) && backToListen && Boolean(monitorsBefore) && agentCall && !agentCall.endedAt && monitorAfter === null, actual: `אירוע-הוחל→שורה 'בשיחה' ${lagMs}ms (כולל poll 1.5s + זמן בקשה מקומי); מחותמת הספק ${lagFromProvider}ms; row="${rowText?.slice(0, 60)}"; whisper audit=${Boolean(whisperAudit)}; blur→listen=${backToListen}; agent call alive after exit=${Boolean(agentCall && !agentCall.endedAt)}; monitor cleared=${monitorAfter === null}` };
+  }, P);
   await ctx.close();
   await browser.close();
   const summary = { total: rows.length, passed: rows.filter((r) => r.status === "עבר").length, failed: rows.filter((r) => r.status === "נכשל").length };

@@ -10,6 +10,7 @@ import { TelephonyRequestTimeout } from "@/lib/telephony/types";
 import type { ProviderEvent } from "@/lib/telephony/types";
 import { getBusinessSettings } from "@/lib/settings";
 import { handleInboundInitiated } from "@/lib/dialer/inbound";
+import { endMonitorsForCall, markMonitorEnded, markMonitorJoined } from "@/lib/dialer/monitor";
 
 const RANK: Record<CallStatus, number> = {
   created: 0,
@@ -73,6 +74,17 @@ export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessRe
     }
   }
 
+  // 1b. Supervisor (manager) leg events never touch the call's own state machine.
+  if (ev.leg === "supervisor" || ev.legId.startsWith("mock-supervisor-")) {
+    const monitor = ev.monitorId ? await prisma.callMonitor.findUnique({ where: { id: ev.monitorId } }) : await prisma.callMonitor.findFirst({ where: { legId: ev.legId } });
+    if (monitor) {
+      if (ev.type === "conference.joined") await markMonitorJoined(monitor.id);
+      else if (ev.type === "leg.hangup" || ev.type === "conference.left") await markMonitorEnded(monitor.id, ev.hangupCause ?? "supervisor_left");
+      await prisma.telephonyEvent.update({ where: { provider_providerEventId: { provider: ev.provider, providerEventId: ev.eventId } }, data: { processedAt: new Date(), callId: monitor.callId, businessId: monitor.businessId } });
+      return { duplicate: false, callId: monitor.callId };
+    }
+  }
+
   // 2. Resolve the call – by echoed client state first, then by leg id.
   const call =
     (ev.callId ? await prisma.call.findUnique({ where: { id: ev.callId } }) : null) ??
@@ -93,7 +105,7 @@ export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessRe
     });
     return { duplicate: false, callId: routed?.id ?? null };
   }
-  const leg: "agent" | "lead" | undefined = ev.leg ?? (call.agentLegId === ev.legId ? "agent" : call.leadLegId === ev.legId ? "lead" : undefined);
+  const leg: "agent" | "lead" | undefined = ev.leg === "agent" || ev.leg === "lead" ? ev.leg : call.agentLegId === ev.legId ? "agent" : call.leadLegId === ev.legId ? "lead" : undefined;
 
   await prisma.telephonyEvent.update({
     where: { provider_providerEventId: { provider: ev.provider, providerEventId: ev.eventId } },
@@ -182,6 +194,11 @@ export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessRe
           data.recordingStatus = "saved";
           if (ev.recordingDurationMs !== undefined) data.recordingDurationMs = ev.recordingDurationMs;
           break;
+        case "conference.joined":
+          if (ev.conferenceId && !c.conferenceId) data.conferenceId = ev.conferenceId;
+          if (!c.answeredAt) data.answeredAt = now; // lead is in the conference with the agent = talking
+          data.status = forward(c.status, "answered");
+          break;
       }
     }
 
@@ -219,9 +236,16 @@ export async function dialLeadLeg(callId: string) {
   const settings = await getBusinessSettings(call.businessId);
   const telephony = getTelephony();
   try {
+    // The answered agent leg becomes the first participant of a conference so supervisors can join later.
+    let conferenceId = call.conferenceId;
+    if (!conferenceId) {
+      conferenceId = await telephony.createConference(call.agentLegId, call.id, `${call.id}-conf`);
+      await prisma.call.update({ where: { id: call.id }, data: { conferenceId } });
+    }
     const r = await telephony.dialLead({
       callId: call.id,
       agentLegId: call.agentLegId,
+      conferenceId,
       toE164: call.toE164,
       fromE164: call.fromE164,
       timeoutSeconds: settings.ringTimeoutSeconds,
@@ -264,6 +288,7 @@ export async function dialLeadLeg(callId: string) {
 export async function afterCallFinalized(callId: string) {
   const call = await prisma.call.findUnique({ where: { id: callId } });
   if (!call) return;
+  await endMonitorsForCall(callId, "call_ended");
   const telephony = getTelephony();
   if (call.agentLegId && !telephony.simulation) {
     try {

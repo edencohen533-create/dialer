@@ -38,12 +38,22 @@ export const mockAdapter: TelephonyAdapter = {
     };
   },
   async hangupLeg(legId) {
+    if (legId.startsWith("mock-supervisor-")) return; // the monitor service records the end (and audits it)
     // Record an explicit hangup request; advanceMockCall() turns it into a hangup event.
     const callId = legId.replace(/^mock-(agent|lead)-/, "");
     await prisma.call.updateMany({ where: { id: callId, endedAt: null, hangupRequestedAt: null }, data: { hangupRequestedAt: new Date() } });
   },
   async answerLeg() {
     /* no-op in simulation */
+  },
+  async createConference(legId, name) {
+    return `mock-conf-${name}`;
+  },
+  async dialSupervisor(input) {
+    return { legId: `mock-supervisor-${input.monitorId}`, providerSessionId: `mock-session-${input.callId}` };
+  },
+  async switchSupervisorRole() {
+    /* no-op in simulation – role is tracked in the DB */
   },
   async sendDtmf() {
     /* no-op in simulation */
@@ -113,7 +123,7 @@ export function dueMockEvents(call: {
       if (now - tl >= MOCK_TIMELINE.rejectedHangupMs) events.push(mk("lead-hangup", "leg.hangup", "lead", { hangupCause: "call_rejected", hangupSource: "callee" }));
     } else if (now - tl >= MOCK_TIMELINE.leadAnswerMs) {
       events.push(mk("lead-answered", "leg.answered", "lead"));
-      events.push(mk("lead-bridged", "leg.bridged", "lead"));
+      events.push(mk("lead-joined", "conference.joined", "lead", { conferenceId: `mock-conf-${call.id}` }));
     }
   }
   return events;
@@ -135,7 +145,7 @@ function dueInboundMockEvents(call: { id: string; createdAt: Date; agentAnswered
     return events;
   }
   if (call.agentAnsweredAt) {
-    events.push(mk("lead-bridged", "leg.bridged", "lead"));
+    events.push(mk("lead-joined", "conference.joined", "lead", { conferenceId: `mock-conf-${call.id}` }));
   } else if (now - call.createdAt.getTime() >= MOCK_TIMELINE.inboundRingTimeoutMs) {
     events.push(mk("lead-hangup", "leg.hangup", "lead", { hangupCause: "originator_cancel", hangupSource: "caller" }));
   }

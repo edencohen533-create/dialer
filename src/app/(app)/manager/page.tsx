@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { api, qs } from "@/lib/client/api";
 import { Badge, Button, ErrorState, Input, Phone, Select, Spinner, Stat, cx } from "@/components/ui";
 import { CALL_STATUS_LABEL, MODE_LABEL, PRESENCE_LABEL, formatDuration, formatPhone, relativeTime } from "@/lib/client/format";
+import { LiveFloor } from "@/components/manager/LiveFloor";
 
 interface Metrics { dials: number; connected: number; uniqueContacts: number; connectRate: number; talkSeconds: number; avgTalkSeconds: number; avgRingSeconds: number; avgWrapUpSeconds: number; avgGapSeconds: number; inbound: number; inboundMissed: number; sales: number; callbacks: number; outcomes: Record<string, number>; callbackAdherence?: { due: number; onTime: number; overdueOpen: number; rate: number | null } }
 interface Agent { id: string; fullName: string; role: string; presence: string; displayPresence: string; presenceAt: string; team: { name: string } | null; session: { mode: string; status: string; dialsCount: number; list: { name: string } | null } | null; liveCall: { id: string; status: string; direction: string; toE164: string; createdAt: string; answeredAt: string | null; contact: { fullName: string } | null } | null; metrics: Metrics | null }
@@ -24,6 +25,23 @@ function todayISO() {
 }
 
 export default function ManagerPage() {
+  const [view, setView] = useState<"now" | "reports">("now");
+  return (
+    <div className="flex flex-col min-h-screen">
+      <header className="px-5 pt-5 pb-3 flex flex-wrap items-center gap-3 border-b border-line">
+        <h1 className="text-lg font-semibold">מוקד בזמן אמת</h1>
+        <div className="flex rounded-lg border border-line overflow-hidden ms-2">
+          <button onClick={() => setView("now")} className={cx("h-9 px-4 text-sm", view === "now" ? "bg-accent text-white" : "text-muted hover:text-text")}>עכשיו</button>
+          <button onClick={() => setView("reports")} className={cx("h-9 px-4 text-sm", view === "reports" ? "bg-accent text-white" : "text-muted hover:text-text")}>דוחות</button>
+        </div>
+        <p className="text-xs text-muted">{view === "now" ? "מצב חי של המוקד ונתוני היום" : "נתונים לתקופה שנבחרה – ללא סטטוס נוכחי"}</p>
+      </header>
+      {view === "now" ? <LiveFloor /> : <ReportsView />}
+    </div>
+  );
+}
+
+function ReportsView() {
   const [data, setData] = useState<Dash | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [from, setFrom] = useState(todayISO());
@@ -63,7 +81,7 @@ export default function ManagerPage() {
   return (
     <div className="p-5 space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-lg font-semibold">מסך מנהל</h1>
+        <h2 className="text-base font-semibold">דוחות לתקופה</h2>
         {data.telephony.simulation && <Badge tone="warn">מצב הדמיה</Badge>}
         {data.dialingPaused ? (
           <Button size="sm" variant="good" onClick={() => togglePause("business", false)}>▶ חדש חיוגים לכל העסק</Button>
@@ -130,8 +148,8 @@ export default function ManagerPage() {
           <table className="w-full text-sm">
             <thead className="text-xs text-muted bg-white/3">
               <tr>
-                <th className="text-start px-3 h-9 font-medium">נציג</th><th className="text-start px-3 font-medium">מצב</th><th className="text-start px-3 font-medium">סשן</th><th className="text-start px-3 font-medium">שיחה נוכחית</th>
-                <th className="text-start px-3 font-medium">ניסיונות</th><th className="text-start px-3 font-medium">נענו</th><th className="text-start px-3 font-medium">% מענה</th><th className="text-start px-3 font-medium">שיחה ממוצעת</th><th className="text-start px-3 font-medium">תיעוד ממוצע</th><th className="text-start px-3 font-medium">מכירות</th><th className="text-start px-3 font-medium">חזרות</th><th className="text-start px-3 font-medium">עמידה בחזרות</th>
+                <th className="text-start px-3 h-9 font-medium">נציג</th>
+                <th className="text-start px-3 font-medium"><span title="ניסיונות יוצאים שהספק יצר בטווח">יוצאות</span></th><th className="text-start px-3 font-medium">ניסיונות (כולל נכנסות)</th><th className="text-start px-3 font-medium">נענו</th><th className="text-start px-3 font-medium">% מענה</th><th className="text-start px-3 font-medium">שיחה ממוצעת</th><th className="text-start px-3 font-medium">תיעוד ממוצע</th><th className="text-start px-3 font-medium">מכירות</th><th className="text-start px-3 font-medium">חזרות</th><th className="text-start px-3 font-medium">עמידה בחזרות</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
@@ -139,11 +157,9 @@ export default function ManagerPage() {
                 const m = a.metrics;
                 const lc = a.liveCall;
                 return (
-                  <tr key={a.id} className={cx(a.displayPresence === "in_call" && "bg-good/5")}>
+                  <tr key={a.id}>
                     <td className="px-3 h-11"><p className="font-medium">{a.fullName}</p><p className="text-[11px] text-muted">{a.team?.name ?? (a.role === "manager" ? "מנהל" : "")}</p></td>
-                    <td className="px-3"><Badge tone={presenceTone[a.displayPresence] ?? "neutral"} dot>{presenceLabel(a.displayPresence)}</Badge><p className="text-[11px] text-muted mt-0.5">{relativeTime(a.presenceAt, now)}</p></td>
-                    <td className="px-3 text-xs">{a.session ? <>{MODE_LABEL[a.session.mode]}{a.session.list ? ` · ${a.session.list.name}` : ""}<p className="text-muted">{a.session.dialsCount} חיוגים · {a.session.status === "paused" ? "מושהה" : "פעיל"}</p></> : <span className="text-muted">—</span>}</td>
-                    <td className="px-3 text-xs">{lc ? <><span className={cx(lc.status === "answered" ? "text-good" : "text-warn")}>{CALL_STATUS_LABEL[lc.status]}</span>{lc.direction === "inbound" && " (נכנסת)"} · {lc.contact?.fullName ?? <Phone value={formatPhone(lc.toE164)} />}<p className="text-muted tabular">{formatDuration(Math.round((now - new Date(lc.answeredAt ?? lc.createdAt).getTime()) / 1000))}</p></> : <span className="text-muted">—</span>}</td>
+                    <td className="px-3 tabular">{(m as unknown as { outboundAttempts?: number })?.outboundAttempts ?? 0}</td>
                     <td className="px-3 tabular">{m?.dials ?? 0}</td>
                     <td className="px-3 tabular">{m?.connected ?? 0}</td>
                     <td className="px-3 tabular">{m ? `${m.connectRate}%` : "0%"}</td>
