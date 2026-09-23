@@ -140,12 +140,14 @@ function dueInboundMockEvents(call: { id: string; createdAt: Date; agentAnswered
     provider: "mock", eventId: `mock:${call.id}:${suffix}`, type, legId: `mock-${leg}-${call.id}`, callId: call.id, leg, occurredAt: new Date(), raw: { simulated: true }, ...extra,
   });
   const events: ProviderEvent[] = [];
+  // Provider confirms our answer of the customer leg almost immediately.
+  if (now - call.createdAt.getTime() >= 300) events.push(mk("lead-answered", "leg.answered", "lead"));
   if (call.hangupRequestedAt) {
     events.push(mk("lead-hangup", "leg.hangup", "lead", { hangupCause: call.answeredAt ? "normal_clearing" : "originator_cancel", hangupSource: "caller" }));
     return events;
   }
   if (call.agentAnsweredAt) {
-    events.push(mk("lead-joined", "conference.joined", "lead", { conferenceId: `mock-conf-${call.id}` }));
+    events.push(mk("agent-joined", "conference.joined", "agent", { conferenceId: `mock-conf-${call.id}` }));
   } else if (now - call.createdAt.getTime() >= MOCK_TIMELINE.inboundRingTimeoutMs) {
     events.push(mk("lead-hangup", "leg.hangup", "lead", { hangupCause: "originator_cancel", hangupSource: "caller" }));
   }

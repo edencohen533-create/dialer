@@ -46,13 +46,16 @@ export async function handleInboundInitiated(ev: ProviderEvent) {
   // Agent selection: owner first (if available), then any available agent of the business.
   const candidates = await prisma.user.findMany({
     where: { businessId, isActive: true, presence: "available", role: { in: ["agent", "manager"] }, sipUsername: { not: null } },
-    select: { id: true, sipUsername: true, fullName: true },
+    select: { id: true, sipUsername: true, fullName: true, role: true },
   });
   const liveUsers = new Set((await prisma.call.findMany({ where: { businessId, endedAt: null }, select: { userId: true } })).map((c) => c.userId));
-  const pausedUsers = new Set((await prisma.dialerSession.findMany({ where: { businessId, status: "paused" }, select: { userId: true } })).map((s) => s.userId));
-  const free = candidates.filter((u) => !liveUsers.has(u.id) && !pausedUsers.has(u.id));
+  // "Available for work" = has a live (not paused) dialer session and no call. Presence alone is not enough:
+  // a manager who merely ended a manual call must not receive customers' inbound calls.
+  const working = new Set((await prisma.dialerSession.findMany({ where: { businessId, status: "active" }, select: { userId: true } })).map((s) => s.userId));
+  const free = candidates.filter((u) => working.has(u.id) && !liveUsers.has(u.id));
   const owner = settings.inbound.preferOwner && contact?.ownerUserId ? free.find((u) => u.id === contact!.ownerUserId) : undefined;
-  const agent = owner ?? free[0];
+  // Agents before managers; managers only take inbound calls when no agent is free.
+  const agent = owner ?? free.find((u) => u.role === "agent") ?? free[0];
   if (!agent) {
     return missed(businessId, number.e164, fromE164, contact?.id ?? null, ev, "no_agent_available", settings.inbound.createCallbackTask);
   }
@@ -88,20 +91,11 @@ export async function handleInboundInitiated(ev: ProviderEvent) {
   await prisma.user.update({ where: { id: agent.id }, data: { presence: "in_call", presenceAt: new Date() } });
 
   try {
+    // Answer the customer leg. The conference + agent leg are set up when the provider
+    // confirms the answer (call.answered webhook) – see setupInboundBridge().
     await telephony.answerLeg(ev.legId, `${call.id}-answer-inbound`);
-    // Customer leg becomes the conference creator; the agent (and any supervisor) join it.
-    const conferenceId = await telephony.createConference(ev.legId, call.id, `${call.id}-conf`);
-    const r = await telephony.dialAgent({
-      callId: call.id,
-      sipUsername: agent.sipUsername!,
-      fromE164: fromE164 ?? number.e164,
-      timeoutSeconds: AGENT_RING_SECONDS,
-      conferenceId,
-      callerDisplay: contact?.fullName ?? fromE164 ?? "שיחה נכנסת",
-    });
-    call = await prisma.call.update({ where: { id: call.id }, data: { agentLegId: r.legId, providerSessionId: r.providerSessionId, conferenceId } });
   } catch (err) {
-    console.error("[inbound] agent leg failed", err);
+    console.error("[inbound] answer failed", err);
     await prisma.call.update({ where: { id: call.id }, data: { status: "failed", endedAt: new Date(), telephonyResult: "failed", failureReason: String((err as Error).message).slice(0, 200), activeForUser: null, talkSeconds: 0 } });
     await prisma.user.updateMany({ where: { id: agent.id, presence: "in_call" }, data: { presence: "available" } });
     try {
@@ -153,6 +147,40 @@ async function missed(businessId: string, businessNumber: string, fromE164: stri
   }
   await audit(businessId, null, "call", call.id, "inbound.missed", { reason, from: fromE164, taskCreated: createTask && Boolean(contactId) });
   return call;
+}
+
+/**
+ * Customer leg confirmed answered → create the conference around it and ring the agent's browser into it.
+ * Idempotent per call (conferenceId / agentLegId guard).
+ */
+export async function setupInboundBridge(callId: string) {
+  const call = await prisma.call.findUnique({ where: { id: callId }, include: { user: { select: { sipUsername: true } }, contact: { select: { fullName: true } } } });
+  if (!call || call.direction !== "inbound" || call.endedAt || call.agentLegId || !call.leadLegId) return;
+  const telephony = getTelephony();
+  try {
+    const conferenceId = call.conferenceId ?? (await telephony.createConference(call.leadLegId, call.id, `${call.id}-conf`));
+    if (!call.conferenceId) await prisma.call.update({ where: { id: call.id }, data: { conferenceId } });
+    const sipUsername = call.user.sipUsername ?? (telephony.simulation ? `mock-${call.userId.slice(-6)}` : null);
+    if (!sipUsername) throw new Error("agent browser not registered");
+    const r = await telephony.dialAgent({
+      callId: call.id,
+      sipUsername,
+      fromE164: call.toE164,
+      timeoutSeconds: AGENT_RING_SECONDS,
+      conferenceId,
+      callerDisplay: call.contact?.fullName ?? call.toE164,
+    });
+    await prisma.call.update({ where: { id: call.id }, data: { agentLegId: r.legId, providerSessionId: r.providerSessionId ?? call.providerSessionId, lastEventAt: new Date() } });
+  } catch (err) {
+    console.error("[inbound] bridge setup failed", err);
+    await prisma.call.update({ where: { id: call.id }, data: { status: "failed", endedAt: new Date(), telephonyResult: "failed", failureReason: String((err as Error).message).slice(0, 200), activeForUser: null, talkSeconds: 0 } });
+    await prisma.user.updateMany({ where: { id: call.userId, presence: "in_call" }, data: { presence: "available" } });
+    try {
+      await telephony.hangupLeg(call.leadLegId, `${call.id}-hangup-inbound`);
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 /** Agent accepted the inbound call in the browser (simulation marks the agent leg answered). */

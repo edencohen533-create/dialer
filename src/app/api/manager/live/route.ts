@@ -21,7 +21,7 @@ async function cachedMetrics(key: string, f: Parameters<typeof agentMetrics>[0])
   return value;
 }
 
-export type LiveStatus = "available" | "dialing" | "ringing" | "in_call" | "on_hold" | "wrap_up" | "break" | "offline" | "unknown";
+export type LiveStatus = "available" | "dialing" | "ringing" | "in_call" | "on_hold" | "wrap_up" | "break" | "idle" | "offline" | "unknown";
 
 /**
  * Live floor snapshot – polled every ~1.5s by the command center.
@@ -66,9 +66,12 @@ export const GET = withAuth(async ({ user }) => {
     } else if (!connected && sess) {
       status = "unknown"; // session says working, browser silent
       sinceAt = sess.lastHeartbeatAt;
-    } else if (!connected || a.presence === "offline") {
+    } else if (!connected) {
       status = "offline";
       sinceAt = a.presenceAt;
+    } else if (a.presence === "offline") {
+      status = "idle"; // browser connected, but not working a session (not available for inbound routing)
+      sinceAt = a.lastSeenAt ?? a.presenceAt;
     } else if (a.presence === "wrap_up") {
       status = "wrap_up";
       sinceAt = a.presenceAt;
@@ -98,7 +101,7 @@ export const GET = withAuth(async ({ user }) => {
     };
   });
 
-  const counts = { in_call: 0, dialing: 0, available: 0, wrap_up: 0, break: 0, offline: 0, unknown: 0 };
+  const counts = { in_call: 0, dialing: 0, available: 0, wrap_up: 0, break: 0, idle: 0, offline: 0, unknown: 0 };
   for (const r of rows) {
     const st = r.status as LiveStatus;
     const k: keyof typeof counts = st === "ringing" || st === "dialing" ? "dialing" : st === "in_call" || st === "on_hold" ? "in_call" : st;

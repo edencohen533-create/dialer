@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, qs } from "@/lib/client/api";
-import { Badge, Button, ErrorState, Input, Phone, Select, Spinner, Stat, cx } from "@/components/ui";
-import { CALL_STATUS_LABEL, MODE_LABEL, PRESENCE_LABEL, formatDuration, formatPhone, relativeTime } from "@/lib/client/format";
+import { Badge, Button, ErrorState, Input, Select, Spinner, Stat, cx } from "@/components/ui";
+import { formatDuration } from "@/lib/client/format";
 import { LiveFloor } from "@/components/manager/LiveFloor";
 
 interface Metrics { dials: number; connected: number; uniqueContacts: number; connectRate: number; talkSeconds: number; avgTalkSeconds: number; avgRingSeconds: number; avgWrapUpSeconds: number; avgGapSeconds: number; inbound: number; inboundMissed: number; sales: number; callbacks: number; outcomes: Record<string, number>; callbackAdherence?: { due: number; onTime: number; overdueOpen: number; rate: number | null } }
@@ -16,9 +16,6 @@ interface Dash {
   alerts: Array<{ kind: string; severity: "warn" | "bad"; text: string }>; overdueTasks: number; dialingPaused: boolean;
   telephony: { simulation: boolean }; definitions: Record<string, string>;
 }
-
-const presenceTone: Record<string, "neutral" | "good" | "warn" | "info" | "bad"> = { offline: "neutral", available: "info", ringing: "warn", in_call: "good", wrap_up: "warn", paused: "warn" };
-const presenceLabel = (p: string) => (p === "ringing" ? "מצלצל" : PRESENCE_LABEL[p] ?? p);
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -47,7 +44,6 @@ function ReportsView() {
   const [from, setFrom] = useState(todayISO());
   const [to, setTo] = useState("");
   const [listId, setListId] = useState("");
-  const [now, setNow] = useState(() => Date.now());
   const [tab, setTab] = useState<"agents" | "lists" | "sources">("agents");
 
   const load = useCallback(async () => {
@@ -61,8 +57,7 @@ function ReportsView() {
   useEffect(() => {
     load();
     const i = setInterval(load, 4000);
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => { clearInterval(i); clearInterval(t); };
+    return () => clearInterval(i);
   }, [load]);
 
   async function togglePause(scope: "business" | "list", paused: boolean, id?: string) {
@@ -155,7 +150,6 @@ function ReportsView() {
             <tbody className="divide-y divide-line">
               {data.agents.map((a) => {
                 const m = a.metrics;
-                const lc = a.liveCall;
                 return (
                   <tr key={a.id}>
                     <td className="px-3 h-11"><p className="font-medium">{a.fullName}</p><p className="text-[11px] text-muted">{a.team?.name ?? (a.role === "manager" ? "מנהל" : "")}</p></td>

@@ -9,7 +9,7 @@ import { getTelephony } from "@/lib/telephony";
 import { TelephonyRequestTimeout } from "@/lib/telephony/types";
 import type { ProviderEvent } from "@/lib/telephony/types";
 import { getBusinessSettings } from "@/lib/settings";
-import { handleInboundInitiated } from "@/lib/dialer/inbound";
+import { handleInboundInitiated, setupInboundBridge } from "@/lib/dialer/inbound";
 import { endMonitorsForCall, markMonitorEnded, markMonitorJoined } from "@/lib/dialer/monitor";
 
 const RANK: Record<CallStatus, number> = {
@@ -121,10 +121,17 @@ export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessRe
 
     const now = ev.occurredAt ?? new Date();
     const data: Prisma.CallUpdateInput = { lastEventAt: new Date() };
-    let action: "none" | "dial_lead" | "hangup_lead" | "hangup_agent" | "finalized" = "none";
+    let action: "none" | "dial_lead" | "hangup_lead" | "hangup_agent" | "finalized" | "setup_inbound" = "none";
 
     if (leg === "agent") {
-      if (ev.type === "leg.answered") {
+      if (ev.type === "conference.joined") {
+        if (ev.conferenceId && !c.conferenceId) data.conferenceId = ev.conferenceId;
+        if (c.direction === "inbound") {
+          if (!c.agentAnsweredAt) data.agentAnsweredAt = now;
+          if (!c.answeredAt) data.answeredAt = now; // agent is in the conference with the customer
+          data.status = forward(c.status, "answered");
+        }
+      } else if (ev.type === "leg.answered") {
         if (!c.agentAnsweredAt) data.agentAnsweredAt = now;
         if (c.direction === "inbound") {
           if (!c.answeredAt) data.answeredAt = now;
@@ -165,8 +172,9 @@ export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessRe
         case "leg.answered":
         case "leg.bridged":
           if (c.direction === "inbound" && ev.type === "leg.answered") {
-            // We answered the customer leg ourselves in order to bridge; the agent is not on yet.
+            // We answered the customer leg ourselves; now build the conference and ring the agent.
             data.status = forward(c.status, "ringing");
+            if (!c.agentLegId) action = "setup_inbound";
             break;
           }
           if (!c.answeredAt) data.answeredAt = now;
@@ -196,6 +204,11 @@ export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessRe
           break;
         case "conference.joined":
           if (ev.conferenceId && !c.conferenceId) data.conferenceId = ev.conferenceId;
+          if (c.direction === "inbound") {
+            // Customer sits alone in the conference until the agent joins – not "talking" yet.
+            data.status = forward(c.status, "ringing");
+            break;
+          }
           if (!c.answeredAt) data.answeredAt = now; // lead is in the conference with the agent = talking
           data.status = forward(c.status, "answered");
           break;
@@ -217,6 +230,8 @@ export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessRe
   const telephony = getTelephony();
   if (outcome.action === "dial_lead") {
     await dialLeadLeg(outcome.c.id);
+  } else if (outcome.action === "setup_inbound") {
+    await setupInboundBridge(outcome.c.id);
   } else if (outcome.action === "hangup_lead" && outcome.c.leadLegId) {
     try {
       await telephony.hangupLeg(outcome.c.leadLegId, `${outcome.c.id}-hangup-lead`);
@@ -290,11 +305,15 @@ export async function afterCallFinalized(callId: string) {
   if (!call) return;
   await endMonitorsForCall(callId, "call_ended");
   const telephony = getTelephony();
-  if (call.agentLegId && !telephony.simulation) {
-    try {
-      await telephony.hangupLeg(call.agentLegId, `${call.id}-hangup-agent`);
-    } catch (err) {
-      console.error("[events] hangup agent leg failed", err);
+  if (!telephony.simulation) {
+    // Tear down whatever may still be alive at the provider (a leg that already ended returns 422 – ignored).
+    for (const [leg, tag] of [[call.agentLegId, "agent"], [call.leadLegId, "lead"]] as const) {
+      if (!leg) continue;
+      try {
+        await telephony.hangupLeg(leg, `${call.id}-hangup-${tag}`);
+      } catch (err) {
+        console.error(`[events] hangup ${tag} leg failed`, err);
+      }
     }
   }
   const settings = await getBusinessSettings(call.businessId);

@@ -4,7 +4,7 @@
 
 | סה״כ | עבר | נכשל | חסר במימוש | חסום לבדיקה |
 |---|---|---|---|---|
-| 127 | 120 | 0 | 0 | 7 |
+| 127 | 116 | 4 | 0 | 7 |
 
 ## ממצאים ותיקונים במהלך ה-QA
 
@@ -23,6 +23,86 @@
 מה **לא** נבדק (חסום – אין חשבון Telnyx ומספר בדיקה מאושר): אודיו דו-כיווני, השתקה אמיתית, DTMF מול IVR, החלפת התקן באמצע שיחה, ניתוק רשת אמיתי במהלך שיחה, timeout מול הספק ו-retry עם אותו `command_id`, הורדת הקלטה אמיתית. כל שכבת האירועים נבדקה מול סימולציה ומול Webhooks חתומים ב-Ed25519 עם מפתח בדיקה מקומי.
 
 הפרדה: עמודת "אופן" – `mock` = נבדק מול סימולציה בצד השרת (אותו קוד מכונת-מצבים, ללא אודיו); `n/a` = בדיקה שאינה תלויה בספק.
+
+## תותח שיחות
+
+| מזהה | תרחיש | צפוי | בפועל | סטטוס | אופן | ראיה |
+|---|---|---|---|---|---|---|
+| W10 | callback מנותב לנציג שקבע אותו | נציג אחר לא מקבל את הליד לפני חלון החסד; הבעלים כן | agent4 got=null, owner got=false | נכשל | mock |  |
+| W1 | התחלת סשן, משיכה וחיוג – רק שיחה אחת לנציג | שני חיוגים במקביל → אחד מצליח | הצלחות=1, שיחות חיות=1, סיום=answered | עבר | mock | call cmudyj49h0003udej7pig82b6 |
+| W2 | מעבר לליד הבא לפני תיעוד | 409 outcome_required | 409 outcome_required | עבר | mock |  |
+| W3 | שמירת תוצאה בזמן שיחה פעילה | 409 call_still_active | בזמן שיחה: 409 call_still_active; אחרי ניתוק: 200 | עבר | mock |  |
+| W4 | תוצאות ספק: נענה / אין מענה / תפוס / נדחה | telephonyResult תואם, talkSeconds רק לשיחה שנענתה ונמדד מהמענה | 0521000010→no_answer talk=0s \| 0521000011→busy talk=0s \| 0521000012→rejected talk=0s \| 0521000005→answered talk=10s ring→answer 6s | עבר | mock |  |
+| W5 | השהיה – משיכת ליד בסשן מושהה | 409 session_paused | 409 session_paused, presence=paused | עבר | mock |  |
+| W6 | סיום סשן בזמן שיחה | 409 call_active; אחרי ניתוק – הסשן נסגר והליד משוחרר | בזמן שיחה 409/call_active; אחרי: 200, lead.locked=false, presence=offline | עבר | mock |  |
+| W7 | החלפת רשימה בזמן סשן | סשן חדש מחליף את הקודם והליד הקודם משוחרר | old.status=ended, lead.status=pending, locked=false | עבר | mock |  |
+| W8 | מדיניות ניסיונות: אין מענה → ניסיון חוזר; מקסימום → מוצה | attempts=1 & nextAttemptAt≈+30ד׳; ניסיון שני → exhausted (maxAttempts=2) | #1: attempts=1 status=pending next=+30m \| #2: attempts=2 status=exhausted next=+nullm | עבר | mock |  |
+| W9 | תפוס → ניסיון חוזר לפי busyRetryMinutes (5) | nextAttemptAt ≈ +5 דק׳ | provider=busy, next=+5m | עבר | mock |  |
+| N7 | כשל טכני (leg הנציג נכשל לפני צלצול) | הליד חוזר לתור אחרי X דק׳, הניסיון לא נספר, אין דרישת תיעוד, נרשמה אוטומציה | call=failed autoSaved=true lead=pending attempts=0 next=+10m wrapUpRequired=false audit=1 | עבר | mock |  |
+| N13 | סיכום סשן אמיתי | dials/connected/outcomes תואמים ל-DB | dials=2 connected=2 outcomes=2 queue.total=8 | עבר | mock |  |
+| U7 | סשן מלא: התחלה → חיוג אוטומטי → תיעוד → ספירה לאחור → השהיה עוצרת → המשך מחייג | אין חיוג נוסף בזמן השהיה; אחרי המשך נוצרת שיחה חדשה; 'סיים סשן' מנוטרל בזמן שיחה | שיחה ראשונה=true; שיחה חדשה במהלך השהיה=false; שיחה חדשה אחרי המשך=true; 'סיים סשן' מנוטרל בשיחה=true | עבר | mock | docs/qa-shots/U7-*.png |
+| U15 | סיום רשימה: סיכום סשן אמיתי ומודל | אחרי הליד האחרון מוצג 'הרשימה נגמרה – סיכום סשן' עם מספרים | list ok=true; modal="הרשימה נגמרה – סיכום סשן×1חיוגים0נענו0דקות שיחהמספר שגוי1זמן תיעוד ממוצע: 9 שנ׳נ"; session ended=true | עבר | mock | docs/qa-shots/U15-*.png |
+
+## לחישה
+
+| מזהה | תרחיש | צפוי | בפועל | סטטוס | אופן | ראיה |
+|---|---|---|---|---|---|---|
+| R4 | מעבר מפורש ללחישה וחזרה; יציאה לא פוגעת בשיחה | whispering + audit whisper_on; listen + whisper_off; DELETE → ended והשיחה של הנציג עדיין חיה | whisper→whispering, listen→listening, agent switch 403, stop→ended, call alive=true; audit=monitor.started,monitor.joined,monitor.whisper_on,monitor.whisper_off | נכשל | mock |  |
+
+## האזנה
+
+| מזהה | תרחיש | צפוי | בפועל | סטטוס | אופן | ראיה |
+|---|---|---|---|---|---|---|
+| R5 | השיחה מסתיימת בזמן האזנה / בזמן התחברות | monitor → ended (call_ended) בשני המקרים; ללא שגיאה | while listening → ended/null; while connecting (connecting) → ended; active monitor after=null | נכשל | mock |  |
+| R1 | הרשאות: נציג, מנהל מעסק אחר, מנהל בלי צוות, האזנה לעצמך | 403 / 404 / 403 / 400 – גם בקריאת API ישירה | agent 403, other business 404, no-team manager 403, self 400/self_monitor | עבר | mock |  |
+| R2 | הצטרפות רק אחרי מענה; 'מאזין' רק אחרי אישור חיבור | לפני מענה 409; אחרי: connecting → listening (הדמיה ~1s); audit started+joined | early=call_not_answered; start=connecting → listening after 22033ms; live row shows monitor=listening; audit=monitor.started,monitor.joined | עבר | mock |  |
+| R3 | לחיצה כפולה ושיחה אחת בכל פעם | אותו monitor id; שיחה אחרת → 409 monitor_active עם המזהה הקיים | double: 200/200 same=true; other call → 409/monitor_active; active monitors=1 | עבר | mock |  |
+| R10 | בידוד אודיו: המנהל שומע את שני הצדדים, אף צד לא שומע אותו; בלחישה רק הנציג שומע | נבדק בשלוש נקודות קצה אמיתיות | אין חשבון Telnyx ומספר בדיקה. הבידוד נאכף אצל הספק (supervisor_role monitor/whisper + whisper_call_control_ids) – מאומת מול ה-OpenAPI בלבד | חסום לבדיקה | n/a |  |
+| U20 | מנהל רואה נציג בשיחה תוך ~2ש׳, מצטרף להאזנה, לוחש בלחיצה-והחזקה, אובדן פוקוס מפסיק, יציאה לא פוגעת בשיחה |  | אירוע-הוחל→שורה 'בשיחה' 4ms (כולל poll 1.5s + זמן בקשה מקומי); מחותמת הספק 13394ms; row="דכדנה כהןצוות מכירות▶ בשיחה · 00:12רחל אברהם050-123-4533↗ יו"; whisper audit=true; blur→listen=true; agent call alive after exit=true; monitor cleared=true | עבר | mock | docs/qa-shots/U20-*.png |
+
+## זמן אמת
+
+| מזהה | תרחיש | צפוי | בפועל | סטטוס | אופן | ראיה |
+|---|---|---|---|---|---|---|
+| R6 | עדכון תוך ~2ש׳: חיוג, מענה, ניתוק משתקפים ב-/live; מונה השיחות עולה פעם אחת | השורה עוברת מחייג→בשיחה→תיעוד; outboundAttempts +1 בלבד | statuses seen: dialing→ringing→in_call; lag answered→UI-data=8027ms; wrap_up=false; attempts 15→16 | נכשל | mock |  |
+| R7 | אירוע ישן לא מחזיר שיחה שהסתיימה; אירוע כפול לא מכפיל מונים | answered מאוחר → נשאר ended; attempts ללא שינוי | call stays ended, answeredAt=null; attempts 17→17; answered 12→12; row=offline | עבר | mock |  |
+
+## Webhooks
+
+| מזהה | תרחיש | צפוי | בפועל | סטטוס | אופן | ראיה |
+|---|---|---|---|---|---|---|
+| H2 | אירוע כפול ואירועים בסדר הפוך (hangup לפני answered) | כפול מסומן duplicate ללא שינוי; hangup מסיים; answered מאוחר לא מחייה את השיחה | hangup→ended=true result=busy; duplicate=true; events stored=1; late answered → status=ended, answeredAt=null | עבר | mock |  |
+| H1 | חתימה תקינה / גוף שונה / חותמת זמן ישנה | 200 / 401 / 401 | 200 401 401 | עבר | mock |  |
+| H3 | recording.saved מסמן הקלטה; הורדה דרך proxy מאומת בלבד | recordingStatus=saved; GET recording ע״י נציג אחר של אותו צוות → מותר למנהל, 403 לנציג אחר | status=saved id=mock-rec-cmudvy9o800b3crejlzl6ur9q dur=5000ms; owner=404(recording_unavailable) other-agent=403 manager=404(recording_unavailable) – הורדה אמיתית חסומה ללא Telnyx | עבר | mock |  |
+| H4 | אירוע ל-leg לא מוכר | 200 ללא שינוי | 200 {"ok":true,"duplicate":false,"callId":null} | עבר | mock |  |
+| H5 | timeout בבקשת חיוג לספק → בדיקה אם נוצרה שיחה לפני ניסיון חוזר | dialPendingSince → המתנה ל-webhook → retry עם אותו command_id | דורש ספק אמיתי/פרוקסי רשת; הלוגיקה קיימת ב-reconcileCall אך לא הופעלה בבדיקה | חסום לבדיקה | n/a |  |
+
+## שיחות נכנסות
+
+| מזהה | תרחיש | צפוי | בפועל | סטטוס | אופן | ראיה |
+|---|---|---|---|---|---|---|
+| N11 | לקוח מתקשר: זיהוי, ניתוב לבעלים, קבלה, ניתוק, היסטוריה | נותב ל-agent3 (בעלים), ringing; קבל → answered; נתק → ended; direction=inbound בכרטיס | routed=routed_to_owner/true; ringing=true; accept 200; answered; ended=answered talk=8s; wrap-up=true; בהיסטוריה=true | עבר | mock |  |
+| N12 | בעלים עסוק → נציג זמין אחר; אף אחד זמין → לא נענה + משימת חזרה; דחייה ע״י נציג | ניתוב ל-agent4; missed עם task; reject → ended + routingNote | busy owner → routed_to_available_agent (agent4=true); reject 200 ended=true note=rejected_by_agent; nobody → no_agent_available/no_answer, task +1, audit=1 | עבר | mock |  |
+| U14 | שיחה נכנסת מוצגת לנציג עם קבל/דחה; קבלה → בשיחה; ניתוק → תיעוד | פס 'שיחה נכנסת' + כפתורים; אחרי קבלה טיימר; אחרי ניתוק פאנל תוצאה | routed=routed_to_owner; answered inbound=true | עבר | mock | docs/qa-shots/U14-*.png |
+
+## הקלטות
+
+| מזהה | תרחיש | צפוי | בפועל | סטטוס | אופן | ראיה |
+|---|---|---|---|---|---|---|
+| N17 | מדיניות שמירה – עבודת רקע מוחקת הקלטות ישנות | call ישן עם הקלטה → recordingStatus=none אחרי הריצה; חדש נשאר | job 200; old=none new=saved | עבר | mock |  |
+
+## מדדים
+
+| מזהה | תרחיש | צפוי | בפועל | סטטוס | אופן | ראיה |
+|---|---|---|---|---|---|---|
+| R8 | מדדי היום מול נתוני בדיקה ידועים (יוצאות = ניסיונות שהספק יצר; נכשלו לפני יצירה בנפרד) |  | attempts 17/17, answered 12/12, failedPre 0/0, rate 71%, sales 0/0, talk 261/261 | עבר | mock |  |
+| N16 | מדדים מורחבים ודיוק טווח (חציית חצות, ללא ספירה כפולה) | uniqueContacts/avgRing/avgWrap/callbackAdherence מוגדרים; שיחה מאתמול 23:59 לא נספרת ב'היום' | today dials=59/59, with yesterday=60; unique=7/7; avgRing=5s avgWrap=6s gap=24s adherence={"due":4,"onTime":1,"overdueOpen":1,"rate":25} | עבר | mock |  |
+
+## סטטוסים
+
+| מזהה | תרחיש | צפוי | בפועל | סטטוס | אופן | ראיה |
+|---|---|---|---|---|---|---|
+| R9 | דפדפן מנותק אך השיחה חיה → מוצגים שני הנתונים; אין סיום שיחה בגלל אובדן heartbeat | status=in_call, connected=false; call.endedAt null | status=in_call connected=false call alive=true | עבר | mock |  |
 
 ## חיוג ידני
 
@@ -57,25 +137,6 @@
 | P6 | נעילה פגה וליד נלקח ע״י נציג אחר | נציג ב׳ מקבל את הליד; לנציג א׳ lock_lost | agent4 got lead=true, agent3 dial → 409 lock_lost | עבר | mock |  |
 | P7 | רשימה ריקה | next-lead מחזיר null | 200 data=null | עבר | mock |  |
 | U8 | אין חיוג אוטומטי; דילוג עם סיבה דרך המודל | ליד מוצג, 0 שיחות ב-8 שניות, המודל מציג סיבות ואחרי בחירה נטען ליד אחר | שיחה חדשה ב-8ש׳=false; ליד1="שרה כהן" → ליד2="מרים שפירא" (API: מרים שפירא) | עבר | mock | docs/qa-shots/U8-*.png |
-
-## תותח שיחות
-
-| מזהה | תרחיש | צפוי | בפועל | סטטוס | אופן | ראיה |
-|---|---|---|---|---|---|---|
-| W1 | התחלת סשן, משיכה וחיוג – רק שיחה אחת לנציג | שני חיוגים במקביל → אחד מצליח | הצלחות=1, שיחות חיות=1, סיום=answered | עבר | mock | call cmudyj49h0003udej7pig82b6 |
-| W2 | מעבר לליד הבא לפני תיעוד | 409 outcome_required | 409 outcome_required | עבר | mock |  |
-| W3 | שמירת תוצאה בזמן שיחה פעילה | 409 call_still_active | בזמן שיחה: 409 call_still_active; אחרי ניתוק: 200 | עבר | mock |  |
-| W4 | תוצאות ספק: נענה / אין מענה / תפוס / נדחה | telephonyResult תואם, talkSeconds רק לשיחה שנענתה ונמדד מהמענה | 0521000010→no_answer talk=0s \| 0521000011→busy talk=0s \| 0521000012→rejected talk=0s \| 0521000005→answered talk=10s ring→answer 6s | עבר | mock |  |
-| W5 | השהיה – משיכת ליד בסשן מושהה | 409 session_paused | 409 session_paused, presence=paused | עבר | mock |  |
-| W6 | סיום סשן בזמן שיחה | 409 call_active; אחרי ניתוק – הסשן נסגר והליד משוחרר | בזמן שיחה 409/call_active; אחרי: 200, lead.locked=false, presence=offline | עבר | mock |  |
-| W7 | החלפת רשימה בזמן סשן | סשן חדש מחליף את הקודם והליד הקודם משוחרר | old.status=ended, lead.status=pending, locked=false | עבר | mock |  |
-| W8 | מדיניות ניסיונות: אין מענה → ניסיון חוזר; מקסימום → מוצה | attempts=1 & nextAttemptAt≈+30ד׳; ניסיון שני → exhausted (maxAttempts=2) | #1: attempts=1 status=pending next=+30m \| #2: attempts=2 status=exhausted next=+nullm | עבר | mock |  |
-| W9 | תפוס → ניסיון חוזר לפי busyRetryMinutes (5) | nextAttemptAt ≈ +5 דק׳ | provider=busy, next=+5m | עבר | mock |  |
-| W10 | callback מנותב לנציג שקבע אותו | נציג אחר לא מקבל את הליד לפני חלון החסד; הבעלים כן | agent4 got=null, owner got=true | עבר | mock |  |
-| N7 | כשל טכני (leg הנציג נכשל לפני צלצול) | הליד חוזר לתור אחרי X דק׳, הניסיון לא נספר, אין דרישת תיעוד, נרשמה אוטומציה | call=failed autoSaved=true lead=pending attempts=0 next=+10m wrapUpRequired=false audit=1 | עבר | mock |  |
-| N13 | סיכום סשן אמיתי | dials/connected/outcomes תואמים ל-DB | dials=2 connected=2 outcomes=2 queue.total=8 | עבר | mock |  |
-| U7 | סשן מלא: התחלה → חיוג אוטומטי → תיעוד → ספירה לאחור → השהיה עוצרת → המשך מחייג | אין חיוג נוסף בזמן השהיה; אחרי המשך נוצרת שיחה חדשה; 'סיים סשן' מנוטרל בזמן שיחה | שיחה ראשונה=true; שיחה חדשה במהלך השהיה=false; שיחה חדשה אחרי המשך=true; 'סיים סשן' מנוטרל בשיחה=true | עבר | mock | docs/qa-shots/U7-*.png |
-| U15 | סיום רשימה: סיכום סשן אמיתי ומודל | אחרי הליד האחרון מוצג 'הרשימה נגמרה – סיכום סשן' עם מספרים | list ok=true; modal="הרשימה נגמרה – סיכום סשן×1חיוגים0נענו0דקות שיחהמספר שגוי1זמן תיעוד ממוצע: 9 שנ׳נ"; session ended=true | עבר | mock | docs/qa-shots/U15-*.png |
 
 ## תוצאות
 
@@ -165,16 +226,6 @@
 | U11 | דשבורד מנהל מציג נציג 'בשיחה' בזמן אמת | שורת agent1 מציגה 'בשיחה' ואחרי תיעוד 'זמין'/'מנותק' | בזמן שיחה: כולל 'בשיחה'=true; אחרי: זמין | עבר | mock | docs/qa-shots/U11-*.png |
 | U16 | kill switch: מנהל עוצר חיוגים – הנציג נחסם עם הודעה ברורה | חיוג ידני מקבל toast 'החיוג מושהה'; אחרי חידוש עובד | נחסם עם הודעה=true; אחרי חידוש שיחה חדשה=true | עבר | mock | docs/qa-shots/U16-error.png |
 
-## Webhooks
-
-| מזהה | תרחיש | צפוי | בפועל | סטטוס | אופן | ראיה |
-|---|---|---|---|---|---|---|
-| H1 | חתימה תקינה / גוף שונה / חותמת זמן ישנה | 200 / 401 / 401 | 200 401 401 | עבר | mock |  |
-| H2 | אירוע כפול ואירועים בסדר הפוך (hangup לפני answered) | כפול מסומן duplicate ללא שינוי; hangup מסיים; answered מאוחר לא מחייה את השיחה | hangup→ended=true result=busy; duplicate=true; events stored=1; late answered → status=ended, answeredAt=null | עבר | mock |  |
-| H3 | recording.saved מסמן הקלטה; הורדה דרך proxy מאומת בלבד | recordingStatus=saved; GET recording ע״י נציג אחר של אותו צוות → מותר למנהל, 403 לנציג אחר | status=saved id=mock-rec-cmudvy9o800b3crejlzl6ur9q dur=5000ms; owner=404(recording_unavailable) other-agent=403 manager=404(recording_unavailable) – הורדה אמיתית חסומה ללא Telnyx | עבר | mock |  |
-| H4 | אירוע ל-leg לא מוכר | 200 ללא שינוי | 200 {"ok":true,"duplicate":false,"callId":null} | עבר | mock |  |
-| H5 | timeout בבקשת חיוג לספק → בדיקה אם נוצרה שיחה לפני ניסיון חוזר | dialPendingSince → המתנה ל-webhook → retry עם אותו command_id | דורש ספק אמיתי/פרוקסי רשת; הלוגיקה קיימת ב-reconcileCall אך לא הופעלה בבדיקה | חסום לבדיקה | n/a |  |
-
 ## אודיו
 
 | מזהה | תרחיש | צפוי | בפועל | סטטוס | אופן | ראיה |
@@ -210,27 +261,6 @@
 |---|---|---|---|---|---|---|
 | N10 | מכירה סוגרת את הליד בכל הרשימות האחרות ומבטלת משימות פתוחות | ליד ברשימה השנייה → completed; יומן אוטומציה | other list lead=completed; automation log=true ({"callId":"cmudwytph00ntcrej6jqcyoeo","result":"ok","trigger":"outcome:sale","leadsClosed":3}) | עבר | mock |  |
 
-## שיחות נכנסות
-
-| מזהה | תרחיש | צפוי | בפועל | סטטוס | אופן | ראיה |
-|---|---|---|---|---|---|---|
-| N11 | לקוח מתקשר: זיהוי, ניתוב לבעלים, קבלה, ניתוק, היסטוריה | נותב ל-agent3 (בעלים), ringing; קבל → answered; נתק → ended; direction=inbound בכרטיס | routed=routed_to_owner/true; ringing=true; accept 200; answered; ended=answered talk=8s; wrap-up=true; בהיסטוריה=true | עבר | mock |  |
-| N12 | בעלים עסוק → נציג זמין אחר; אף אחד זמין → לא נענה + משימת חזרה; דחייה ע״י נציג | ניתוב ל-agent4; missed עם task; reject → ended + routingNote | busy owner → routed_to_available_agent (agent4=true); reject 200 ended=true note=rejected_by_agent; nobody → no_agent_available/no_answer, task +1, audit=1 | עבר | mock |  |
-| U14 | שיחה נכנסת מוצגת לנציג עם קבל/דחה; קבלה → בשיחה; ניתוק → תיעוד | פס 'שיחה נכנסת' + כפתורים; אחרי קבלה טיימר; אחרי ניתוק פאנל תוצאה | routed=routed_to_owner; answered inbound=true | עבר | mock | docs/qa-shots/U14-*.png |
-
-## מדדים
-
-| מזהה | תרחיש | צפוי | בפועל | סטטוס | אופן | ראיה |
-|---|---|---|---|---|---|---|
-| N16 | מדדים מורחבים ודיוק טווח (חציית חצות, ללא ספירה כפולה) | uniqueContacts/avgRing/avgWrap/callbackAdherence מוגדרים; שיחה מאתמול 23:59 לא נספרת ב'היום' | today dials=59/59, with yesterday=60; unique=7/7; avgRing=5s avgWrap=6s gap=24s adherence={"due":4,"onTime":1,"overdueOpen":1,"rate":25} | עבר | mock |  |
-| R8 | מדדי היום מול נתוני בדיקה ידועים (יוצאות = ניסיונות שהספק יצר; נכשלו לפני יצירה בנפרד) |  | attempts 17/17, answered 12/12, failedPre 0/0, rate 71%, sales 0/0, talk 261/261 | עבר | mock |  |
-
-## הקלטות
-
-| מזהה | תרחיש | צפוי | בפועל | סטטוס | אופן | ראיה |
-|---|---|---|---|---|---|---|
-| N17 | מדיניות שמירה – עבודת רקע מוחקת הקלטות ישנות | call ישן עם הקלטה → recordingStatus=none אחרי הריצה; חדש נשאר | job 200; old=none new=saved | עבר | mock |  |
-
 ## עומס
 
 | מזהה | תרחיש | צפוי | בפועל | סטטוס | אופן | ראיה |
@@ -260,36 +290,6 @@
 | מזהה | תרחיש | צפוי | בפועל | סטטוס | אופן | ראיה |
 |---|---|---|---|---|---|---|
 | N22 | הודעת המשך לפי כללי החיבור |  | אין חיבור WhatsApp במערכת זו | חסום לבדיקה | n/a |  |
-
-## האזנה
-
-| מזהה | תרחיש | צפוי | בפועל | סטטוס | אופן | ראיה |
-|---|---|---|---|---|---|---|
-| R1 | הרשאות: נציג, מנהל מעסק אחר, מנהל בלי צוות, האזנה לעצמך | 403 / 404 / 403 / 400 – גם בקריאת API ישירה | agent 403, other business 404, no-team manager 403, self 400/self_monitor | עבר | mock |  |
-| R2 | הצטרפות רק אחרי מענה; 'מאזין' רק אחרי אישור חיבור | לפני מענה 409; אחרי: connecting → listening (הדמיה ~1s); audit started+joined | early=call_not_answered; start=connecting → listening after 22033ms; live row shows monitor=listening; audit=monitor.started,monitor.joined | עבר | mock |  |
-| R3 | לחיצה כפולה ושיחה אחת בכל פעם | אותו monitor id; שיחה אחרת → 409 monitor_active עם המזהה הקיים | double: 200/200 same=true; other call → 409/monitor_active; active monitors=1 | עבר | mock |  |
-| R5 | השיחה מסתיימת בזמן האזנה / בזמן התחברות | monitor → ended (call_ended) בשני המקרים; ללא שגיאה | while listening → ended/call_ended; while connecting (connecting) → ended; active monitor after=null | עבר | mock |  |
-| R10 | בידוד אודיו: המנהל שומע את שני הצדדים, אף צד לא שומע אותו; בלחישה רק הנציג שומע | נבדק בשלוש נקודות קצה אמיתיות | אין חשבון Telnyx ומספר בדיקה. הבידוד נאכף אצל הספק (supervisor_role monitor/whisper + whisper_call_control_ids) – מאומת מול ה-OpenAPI בלבד | חסום לבדיקה | n/a |  |
-| U20 | מנהל רואה נציג בשיחה תוך ~2ש׳, מצטרף להאזנה, לוחש בלחיצה-והחזקה, אובדן פוקוס מפסיק, יציאה לא פוגעת בשיחה |  | אירוע-הוחל→שורה 'בשיחה' 8ms (כולל poll 1.5s + זמן בקשה מקומי); מחותמת הספק 8286ms; row="דכדנה כהןצוות מכירות▶ בשיחה · 00:08רחל אברהם050-123-4533↗ יו"; whisper audit=true; blur→listen=true; agent call alive after exit=true; monitor cleared=true | עבר | mock | docs/qa-shots/U20-*.png |
-
-## לחישה
-
-| מזהה | תרחיש | צפוי | בפועל | סטטוס | אופן | ראיה |
-|---|---|---|---|---|---|---|
-| R4 | מעבר מפורש ללחישה וחזרה; יציאה לא פוגעת בשיחה | whispering + audit whisper_on; listen + whisper_off; DELETE → ended והשיחה של הנציג עדיין חיה | whisper→whispering, listen→listening, agent switch 403, stop→ended, call alive=true; audit=monitor.started,monitor.joined,monitor.whisper_on,monitor.whisper_off,monitor.ended | עבר | mock |  |
-
-## זמן אמת
-
-| מזהה | תרחיש | צפוי | בפועל | סטטוס | אופן | ראיה |
-|---|---|---|---|---|---|---|
-| R6 | עדכון תוך ~2ש׳: חיוג, מענה, ניתוק משתקפים ב-/live; מונה השיחות עולה פעם אחת | השורה עוברת מחייג→בשיחה→תיעוד; outboundAttempts +1 בלבד | statuses seen: dialing→ringing→in_call; lag DB-visible→live=0ms; provider-timestamp→live=5973ms (כולל עיבוד הסימולציה מקומית מול Neon); wrap_up=true; attempts 22→23 | עבר | mock |  |
-| R7 | אירוע ישן לא מחזיר שיחה שהסתיימה; אירוע כפול לא מכפיל מונים | answered מאוחר → נשאר ended; attempts ללא שינוי | call stays ended, answeredAt=null; attempts 17→17; answered 12→12; row=offline | עבר | mock |  |
-
-## סטטוסים
-
-| מזהה | תרחיש | צפוי | בפועל | סטטוס | אופן | ראיה |
-|---|---|---|---|---|---|---|
-| R9 | דפדפן מנותק אך השיחה חיה → מוצגים שני הנתונים; אין סיום שיחה בגלל אובדן heartbeat | status=in_call, connected=false; call.endedAt null | status=in_call connected=false call alive=true | עבר | mock |  |
 
 ## UI
 

@@ -997,12 +997,13 @@ async function main() {
     await setB({ recordingRetentionDays: 1 });
     const oldC = await db.call.create({ data: { businessId: bizB, userId: a3.id, mode: "manual", provider: "mock", idempotencyKey: "qa-ret-" + key(), toE164: "+972521000098", fromE164: "+97239876543", status: "ended", telephonyResult: "answered", createdAt: new Date(Date.now() - 3 * 86400_000), endedAt: new Date(Date.now() - 3 * 86400_000), recordingStatus: "saved", recordingId: "mock-rec-old", outcomeSavedAt: new Date() } });
     const newC = await db.call.create({ data: { businessId: bizB, userId: a3.id, mode: "manual", provider: "mock", idempotencyKey: "qa-ret2-" + key(), toE164: "+972521000098", fromE164: "+97239876543", status: "ended", telephonyResult: "answered", endedAt: new Date(), recordingStatus: "saved", recordingId: "mock-rec-new", outcomeSavedAt: new Date() } });
-    const job = await anon.req("GET", "/api/jobs/retention");
+    const noAuth = await anon.req("GET", "/api/jobs/retention");
+    const job = await anon.req("GET", "/api/jobs/retention", undefined, { authorization: `Bearer ${process.env.CRON_SECRET ?? ""}` });
     const o = await db.call.findUnique({ where: { id: oldC.id } });
     const n = await db.call.findUnique({ where: { id: newC.id } });
     await setB({ recordingRetentionDays: 0 });
     await db.call.deleteMany({ where: { id: { in: [oldC.id, newC.id] } } });
-    return { pass: job.status === 200 && o?.recordingStatus === "none" && n?.recordingStatus === "saved", actual: `job ${job.status}; old=${o?.recordingStatus} new=${n?.recordingStatus}` };
+    return { pass: noAuth.status === 401 && job.status === 200 && o?.recordingStatus === "none" && n?.recordingStatus === "saved", actual: `unauth ${noAuth.status}; job ${job.status}; old=${o?.recordingStatus} new=${n?.recordingStatus}` };
   });
 
   await t("N18", "עומס", "4 נציגים בשני עסקים מריצים תותח שיחות במקביל", "אין ליד שנמסר פעמיים, אין שגיאות, מדידת latency", async () => {

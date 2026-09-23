@@ -16,7 +16,7 @@ import { Badge, Button, Input, Phone, Select, cx } from "@/components/ui";
 import { MODE_LABEL, formatDuration, formatPhone } from "@/lib/client/format";
 import { MonitorPanel } from "./MonitorPanel";
 
-type LiveStatus = "available" | "dialing" | "ringing" | "in_call" | "on_hold" | "wrap_up" | "break" | "offline" | "unknown";
+type LiveStatus = "available" | "dialing" | "ringing" | "in_call" | "on_hold" | "wrap_up" | "break" | "idle" | "offline" | "unknown";
 interface Metrics { outboundAttempts: number; outboundAnswered: number; outboundAnswerRate: number; dialSeconds: number; talkSeconds: number; avgTalkSeconds: number; sales: number; connected: number; dials: number }
 interface Row {
   id: string; fullName: string; role: string; team: { id: string; name: string } | null; connected: boolean; lastSeenAt: string | null; presence: string; status: LiveStatus; sinceAt: string;
@@ -34,6 +34,7 @@ const STATUS: Record<LiveStatus, { label: string; tone: "neutral" | "good" | "wa
   on_hold: { label: "בהחזקה", tone: "warn", icon: "❚❚" },
   wrap_up: { label: "בתיעוד", tone: "accent", icon: "✎" },
   break: { label: "בהפסקה", tone: "neutral", icon: "☕" },
+  idle: { label: "מחובר, ללא סשן", tone: "neutral", icon: "◌" },
   offline: { label: "מנותק", tone: "neutral", icon: "○" },
   unknown: { label: "לא ידוע – אובדן חיבור", tone: "bad", icon: "?" },
 };
@@ -93,7 +94,7 @@ export function LiveFloor() {
 
   const rows = useMemo(() => {
     if (!live) return [];
-    const order: LiveStatus[] = ["in_call", "on_hold", "ringing", "dialing", "wrap_up", "available", "break", "unknown", "offline"];
+    const order: LiveStatus[] = ["in_call", "on_hold", "ringing", "dialing", "wrap_up", "available", "break", "idle", "unknown", "offline"];
     return live.rows
       .filter((r) => (!q || r.fullName.includes(q) || r.call?.contact?.fullName.includes(q) || r.call?.toE164.includes(q.replace(/\D/g, ""))) && (!team || r.team?.id === team) && (!statusF || r.status === statusF))
       .sort((a, b) => sort === "name" ? a.fullName.localeCompare(b.fullName, "he") : sort === "status" ? order.indexOf(a.status) - order.indexOf(b.status) || a.fullName.localeCompare(b.fullName, "he") : sort === "attempts" ? (b.today?.outboundAttempts ?? 0) - (a.today?.outboundAttempts ?? 0) : (b.today?.talkSeconds ?? 0) - (a.today?.talkSeconds ?? 0));
@@ -143,7 +144,7 @@ export function LiveFloor() {
               </div>
             ))}
           </div>
-          {(live.counts.unknown > 0 || live.counts.offline > 0) && <p className="text-[11px] text-muted mt-1">מנותקים {live.counts.offline} · לא ידוע (אובדן חיבור) {live.counts.unknown}</p>}
+          {(live.counts.unknown > 0 || live.counts.offline > 0 || live.counts.idle > 0) && <p className="text-[11px] text-muted mt-1">מחוברים ללא סשן {live.counts.idle} · מנותקים {live.counts.offline} · לא ידוע (אובדן חיבור) {live.counts.unknown}</p>}
         </section>
 
         <section>
@@ -219,7 +220,7 @@ export function LiveFloor() {
                       <td className="px-3 tabular">{r.today?.outboundAnswered ?? 0} <span className="text-muted text-xs">({r.today?.outboundAnswerRate ?? 0}%)</span></td>
                       {showCols && <><td className="px-3 tabular text-good">{r.today?.sales ?? 0}</td><td className="px-3 tabular">{formatDuration(r.today?.talkSeconds ?? 0)}</td><td className="px-3 tabular">{formatDuration(r.today?.dialSeconds ?? 0)}</td></>}
                       <td className="px-3">
-                        <div className="flex items-center gap-1">
+                        <div className="flex flex-wrap items-center gap-1 max-w-[260px]">
                           {c?.canMonitor && (
                             <>
                               <Button size="sm" variant={me ? "good" : "secondary"} onClick={() => (me ? setPanelFor(r) : listen(r))} title="האזנה – שומע את שני הצדדים, אף אחד לא שומע אותך">{me ? "מחובר" : "האזנה"}</Button>

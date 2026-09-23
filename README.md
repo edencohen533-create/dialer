@@ -25,10 +25,11 @@ npm run dev                    # http://localhost:3000
 | `TELNYX_PUBLIC_KEY` | Account Settings → Keys & Credentials → Public Key (base64) – לאימות Ed25519 של Webhooks |
 | `TELNYX_CALL_CONTROL_APP_ID` | Voice → Call Control Application. Webhook URL: `https://<domain>/api/webhooks/telnyx` |
 | `TELNYX_CREDENTIAL_CONNECTION_ID` | Voice → SIP Connections → Credential Connection (לרישום דפדפני הנציגים) |
+| `CRON_SECRET` | חובה לעבודת הרקע `/api/jobs/retention` (Vercel Cron שולח אותו אוטומטית). בלעדיו העבודה מסרבת לרוץ. |
 
 שני החיבורים צריכים Outbound Voice Profile. מספרי העסק משויכים ל-Call Control App ומוזנים במסך הגדרות → מספרים יוצאים (E.164).
 
-**זרימת שיחה:** השרת מחייג קודם ל-leg של הנציג (`sip:<credential>@sip.telnyx.com`, `command_id` ייחודי), הדפדפן עונה אוטומטית, ואז השרת מחייג ללקוח עם `link_to` + `bridge_on_answer`. "נענה" נקבע רק מאירועי `call.answered`/`call.bridged` חתומים. אירועים כפולים / בסדר שגוי מטופלים (מזהה אירוע ייחודי, מכונת מצבים שמתקדמת קדימה בלבד, hangup תמיד סוגר).
+**זרימת שיחה:** השרת מחייג קודם ל-leg של הנציג (`sip:<credential>@sip.telnyx.com`, `command_id` ייחודי), הדפדפן עונה אוטומטית, ה-leg הופך ליוצר Conference, ואז השרת מחייג ללקוח עם `conference_config` כך שהוא מצטרף במענה. מנהל מצטרף לאותו Conference כ-`supervisor_role=monitor` (האזנה) ועובר ללחישה עם `switch_supervisor_role`. שיחות נכנסות: הלקוח נענה, ה-Conference נוצר סביבו אחרי אישור המענה, והנציג מחויג פנימה. "נענה" נקבע רק מאירועי `call.answered`/`call.bridged` חתומים. אירועים כפולים / בסדר שגוי מטופלים (מזהה אירוע ייחודי, מכונת מצבים שמתקדמת קדימה בלבד, hangup תמיד סוגר).
 
 ## מבנה
 
