@@ -132,6 +132,8 @@ export function DialerProvider({ children }: { children: ReactNode }) {
   const countdownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const emptyQueueRetry = useRef<ReturnType<typeof setTimeout> | null>(null);
   const advancePowerRef = useRef<() => Promise<void>>(async () => undefined);
+  const refreshSeq = useRef(0);
+  const appliedSeq = useRef(0);
   const connectPhoneRef = useRef<() => Promise<void>>(async () => undefined);
   const canSelectSpeaker = typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype;
 
@@ -148,12 +150,18 @@ export function DialerProvider({ children }: { children: ReactNode }) {
 
   // ── State polling ────────────────────────────────────────────────────
   const refresh = useCallback(async () => {
+    const seq = ++refreshSeq.current;
     try {
       const s = await api.get<DialerStateDto>(`/api/dialer/state?browserSessionId=${browserSessionId}`);
+      // Responses can arrive out of order on a slow network – never let an older one win.
+      if (seq < appliedSeq.current) return;
+      appliedSeq.current = seq;
+      // Keep the ref in sync immediately: callers read stateRef right after awaiting refresh().
+      stateRef.current = s;
       setState(s);
       setError(null);
       if (s.session && s.session.ownedByThisTab === false) setSessionTakenOver(true);
-      else if (s.session?.ownedByThisTab) setSessionTakenOver(false);
+      else setSessionTakenOver(false);
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) return;
       setError("אין חיבור לשרת");

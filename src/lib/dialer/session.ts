@@ -32,6 +32,10 @@ export async function startSession(user: SessionUser, input: { mode: DialMode; l
   const settings = await getBusinessSettings(user.businessId);
   const countdown = Math.min(60, Math.max(0, input.countdownSeconds ?? settings.autoDialCountdownSeconds));
 
+  // A superseded session must not keep a lead locked (list switch / new tab).
+  const held = await currentLockedLead(user.id);
+  if (held && held.status === "locked") await releaseLead(user.id, held.id, "session_superseded");
+
   return prisma.$transaction(async (tx) => {
     // A new session (possibly from another tab) supersedes any previous one.
     await tx.dialerSession.updateMany({ where: { userId: user.id, status: { in: ["active", "paused"] } }, data: { status: "ended", endedAt: new Date() } });

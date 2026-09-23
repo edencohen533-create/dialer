@@ -70,10 +70,11 @@ export function isWithinDialWindow(window: DialWindow, now = new Date()): boolea
   return cur >= sh * 60 + sm && cur < eh * 60 + em;
 }
 
-/** Next moment the dial window opens (approximate: scans forward in 15-minute steps, up to 8 days). */
+/** Next moment the dial window opens (scans forward minute by minute, up to 8 days). */
 export function nextDialWindowOpening(window: DialWindow, from = new Date()): Date | null {
-  const step = 15 * 60 * 1000;
-  for (let t = from.getTime(); t < from.getTime() + 8 * 24 * 3600 * 1000; t += step) {
+  const step = 60 * 1000;
+  const start = Math.floor(from.getTime() / step) * step;
+  for (let t = start; t < start + 8 * 24 * 3600 * 1000; t += step) {
     const d = new Date(t);
     if (isWithinDialWindow(window, d)) return d;
   }

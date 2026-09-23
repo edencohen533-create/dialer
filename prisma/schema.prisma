@@ -407,6 +407,8 @@ model Call {
   @@index([businessId, createdAt])
   @@index([userId, createdAt])
   @@index([contactId, createdAt])
+  @@index([leadId])
+  @@index([userId, endedAt, outcomeSavedAt])
   @@index([agentLegId])
   @@index([leadLegId])
   @@map("calls")
@@ -458,6 +460,8 @@ model Task {
 
   @@index([userId, status, dueAt])
   @@index([businessId, status, dueAt])
+  @@index([contactId, status])
+  @@index([callId])
   @@map("tasks")
 }
 
