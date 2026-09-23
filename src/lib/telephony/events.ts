@@ -1,0 +1,264 @@
+/**
+ * Provider event processor. Idempotent (unique provider event id) and
+ * order-tolerant: state only moves forward, and a hangup always finalizes.
+ */
+import { Prisma } from "@/generated/prisma/client";
+import type { CallStatus, TelephonyResult } from "@/generated/prisma/enums";
+import { prisma, dbSchema } from "@/lib/db";
+import { getTelephony } from "@/lib/telephony";
+import { TelephonyRequestTimeout } from "@/lib/telephony/types";
+import type { ProviderEvent } from "@/lib/telephony/types";
+import { getBusinessSettings } from "@/lib/settings";
+
+const RANK: Record<CallStatus, number> = {
+  created: 0,
+  dialing_agent: 1,
+  agent_connected: 2,
+  dialing_lead: 3,
+  ringing: 4,
+  answered: 5,
+  ended: 6,
+  failed: 6,
+};
+
+function forward(current: CallStatus, next: CallStatus): CallStatus {
+  return RANK[next] > RANK[current] ? next : current;
+}
+
+export function telephonyResultFromHangup(cause: string | undefined, answered: boolean): TelephonyResult {
+  if (answered) return "answered";
+  switch (cause) {
+    case "user_busy":
+      return "busy";
+    case "timeout":
+    case "no_answer":
+      return "no_answer";
+    case "originator_cancel":
+      return "cancelled";
+    case "call_rejected":
+      return "rejected";
+    default:
+      return "failed";
+  }
+}
+
+export interface ProcessResult {
+  duplicate: boolean;
+  callId: string | null;
+}
+
+export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessResult> {
+  // 1. Record the raw event; a unique violation means we've already seen it.
+  //    An event that exists but was never marked processed (crash mid-way) is applied again.
+  const seen = await prisma.telephonyEvent.findUnique({ where: { provider_providerEventId: { provider: ev.provider, providerEventId: ev.eventId } }, select: { id: true, processedAt: true } });
+  if (seen?.processedAt) return { duplicate: true, callId: null };
+  if (!seen) {
+    try {
+      await prisma.telephonyEvent.create({
+        data: {
+          provider: ev.provider,
+          providerEventId: ev.eventId,
+          eventType: ev.type,
+          legId: ev.legId,
+          occurredAt: ev.occurredAt,
+          payload: ev.raw as Prisma.InputJsonValue,
+        },
+      });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+        return { duplicate: true, callId: null };
+      }
+      throw err;
+    }
+  }
+
+  // 2. Resolve the call – by echoed client state first, then by leg id.
+  const call =
+    (ev.callId ? await prisma.call.findUnique({ where: { id: ev.callId } }) : null) ??
+    (await prisma.call.findFirst({ where: { OR: [{ agentLegId: ev.legId }, { leadLegId: ev.legId }] } }));
+  if (!call) {
+    await prisma.telephonyEvent.update({ where: { provider_providerEventId: { provider: ev.provider, providerEventId: ev.eventId } }, data: { processedAt: new Date() } });
+    return { duplicate: false, callId: null };
+  }
+  const leg: "agent" | "lead" | undefined = ev.leg ?? (call.agentLegId === ev.legId ? "agent" : call.leadLegId === ev.legId ? "lead" : undefined);
+
+  await prisma.telephonyEvent.update({
+    where: { provider_providerEventId: { provider: ev.provider, providerEventId: ev.eventId } },
+    data: { callId: call.id, businessId: call.businessId },
+  });
+
+  // 3. Apply under a row lock so concurrent webhooks for the same call serialize.
+  const outcome = await prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`SELECT id FROM ${Prisma.raw(`"${dbSchema()}"."calls"`)} WHERE id = ${call.id} FOR UPDATE`);
+    if (rows.length === 0) return null;
+    const c = (await tx.call.findUnique({ where: { id: call.id } }))!;
+    if (c.endedAt && ev.type !== "recording.saved") return { c, action: "none" as const };
+
+    const now = ev.occurredAt ?? new Date();
+    const data: Prisma.CallUpdateInput = { lastEventAt: new Date() };
+    let action: "none" | "dial_lead" | "hangup_lead" | "hangup_agent" | "finalized" = "none";
+
+    if (leg === "agent") {
+      if (ev.type === "leg.answered") {
+        if (!c.agentAnsweredAt) data.agentAnsweredAt = now;
+        data.status = forward(c.status, "agent_connected");
+        if (!c.leadLegId && !c.hangupRequestedAt) action = "dial_lead";
+      } else if (ev.type === "leg.hangup") {
+        if (c.leadLegId && !c.endedAt) {
+          // Agent dropped (or hung up) – make sure the lead leg is torn down.
+          if (c.answeredAt || c.hangupRequestedAt) {
+            // Bridged call: the provider ends the other leg too, but be explicit.
+            action = "hangup_lead";
+          } else {
+            action = "hangup_lead";
+          }
+          if (!c.hangupRequestedAt) data.hangupRequestedAt = new Date();
+        } else if (!c.leadLegId) {
+          // Agent leg never answered / failed before we dialed the lead.
+          data.status = "failed";
+          data.endedAt = now;
+          data.telephonyResult = "failed";
+          data.failureReason = `agent_leg_${ev.hangupCause ?? "hangup"}`;
+          data.hangupCause = ev.hangupCause;
+          data.hangupSource = ev.hangupSource;
+          data.activeForUser = null;
+          data.talkSeconds = 0;
+          action = "finalized";
+        }
+      }
+    } else if (leg === "lead") {
+      switch (ev.type) {
+        case "leg.initiated":
+          if (!c.ringingAt) data.ringingAt = now;
+          data.status = forward(c.status, "ringing");
+          break;
+        case "leg.answered":
+        case "leg.bridged":
+          if (!c.answeredAt) data.answeredAt = now;
+          data.status = forward(c.status, "answered");
+          if (c.recordingId && c.recordingStatus === "none") data.recordingStatus = "recording";
+          break;
+        case "leg.machine_detection":
+          data.amdResult = ev.amdResult;
+          break;
+        case "leg.hangup": {
+          const answered = Boolean(c.answeredAt);
+          const endedAt = now;
+          data.endedAt = endedAt;
+          data.status = answered || ev.hangupCause === "normal_clearing" || ev.hangupCause === "timeout" || ev.hangupCause === "user_busy" || ev.hangupCause === "originator_cancel" || ev.hangupCause === "call_rejected" || ev.hangupCause === "no_answer" ? "ended" : "failed";
+          data.telephonyResult = telephonyResultFromHangup(ev.hangupCause, answered);
+          data.hangupCause = ev.hangupCause;
+          data.hangupSource = ev.hangupSource;
+          data.talkSeconds = answered && c.answeredAt ? Math.max(0, Math.round((endedAt.getTime() - c.answeredAt.getTime()) / 1000)) : 0;
+          data.activeForUser = null;
+          if (c.recordingStatus === "recording" && !answered) data.recordingStatus = "none";
+          action = "finalized";
+          break;
+        }
+        case "recording.saved":
+          data.recordingStatus = "saved";
+          if (ev.recordingDurationMs !== undefined) data.recordingDurationMs = ev.recordingDurationMs;
+          break;
+      }
+    }
+
+    const updated = await tx.call.update({ where: { id: c.id }, data });
+    return { c: updated, action };
+  });
+
+  await prisma.telephonyEvent.update({
+    where: { provider_providerEventId: { provider: ev.provider, providerEventId: ev.eventId } },
+    data: { processedAt: new Date() },
+  });
+
+  if (!outcome) return { duplicate: false, callId: call.id };
+
+  // 4. Side effects outside the transaction.
+  const telephony = getTelephony();
+  if (outcome.action === "dial_lead") {
+    await dialLeadLeg(outcome.c.id);
+  } else if (outcome.action === "hangup_lead" && outcome.c.leadLegId) {
+    try {
+      await telephony.hangupLeg(outcome.c.leadLegId, `${outcome.c.id}-hangup-lead`);
+    } catch (err) {
+      console.error("[events] hangup lead leg failed", err);
+    }
+  } else if (outcome.action === "finalized") {
+    await afterCallFinalized(outcome.c.id);
+  }
+  return { duplicate: false, callId: call.id };
+}
+
+/** Dial the lead leg once the agent's browser leg is connected. Idempotent per call. */
+export async function dialLeadLeg(callId: string) {
+  const call = await prisma.call.findUnique({ where: { id: callId }, include: { business: { select: { settings: true } } } });
+  if (!call || call.endedAt || call.leadLegId || !call.agentLegId || call.hangupRequestedAt) return;
+  const settings = await getBusinessSettings(call.businessId);
+  const telephony = getTelephony();
+  try {
+    const r = await telephony.dialLead({
+      callId: call.id,
+      agentLegId: call.agentLegId,
+      toE164: call.toE164,
+      fromE164: call.fromE164,
+      timeoutSeconds: settings.ringTimeoutSeconds,
+      record: settings.recordingEnabled,
+      amd: false,
+    });
+    await prisma.call.update({
+      where: { id: call.id },
+      data: {
+        leadLegId: r.legId,
+        leadDialedAt: new Date(),
+        providerSessionId: r.providerSessionId ?? call.providerSessionId,
+        recordingId: r.recordingId ?? null,
+        status: "dialing_lead",
+        dialPendingSince: null,
+      },
+    });
+  } catch (err) {
+    if (err instanceof TelephonyRequestTimeout) {
+      // The provider may or may not have created the leg. Do NOT re-dial blindly:
+      // reconciliation waits for a webhook, then retries with the same command_id.
+      await prisma.call.update({ where: { id: call.id }, data: { dialPendingSince: new Date() } });
+      return;
+    }
+    console.error("[events] dial lead failed", err);
+    await prisma.call.update({
+      where: { id: call.id },
+      data: { status: "failed", endedAt: new Date(), telephonyResult: "failed", failureReason: String((err as Error).message).slice(0, 300), activeForUser: null, talkSeconds: 0 },
+    });
+    await afterCallFinalized(call.id);
+    try {
+      await telephony.hangupLeg(call.agentLegId, `${call.id}-hangup-agent`);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/** Runs once a call reached a terminal state: tear down the agent leg, move the lead to wrap-up, update presence. */
+export async function afterCallFinalized(callId: string) {
+  const call = await prisma.call.findUnique({ where: { id: callId } });
+  if (!call) return;
+  const telephony = getTelephony();
+  if (call.agentLegId && !telephony.simulation) {
+    try {
+      await telephony.hangupLeg(call.agentLegId, `${call.id}-hangup-agent`);
+    } catch (err) {
+      console.error("[events] hangup agent leg failed", err);
+    }
+  }
+  const settings = await getBusinessSettings(call.businessId);
+  if (call.leadId) {
+    // Keep the lead locked for wrap-up; the outcome save releases it.
+    await prisma.listLead.updateMany({
+      where: { id: call.leadId, status: "in_call", lockedByUserId: call.userId },
+      data: { status: "locked", lockExpiresAt: new Date(Date.now() + (settings.wrapUpSeconds + settings.lockTtlSeconds) * 1000) },
+    });
+  }
+  await prisma.user.updateMany({
+    where: { id: call.userId, presence: "in_call" },
+    data: { presence: "wrap_up", presenceAt: new Date() },
+  });
+}

@@ -1,36 +1,42 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Dialer – חייגן ותותח שיחות למוקדי מכירות
 
-## Getting Started
+Next.js 16 · Prisma 7 · PostgreSQL (Neon) · Telnyx (Call Control + WebRTC) · עברית / RTL.
 
-First, run the development server:
+## הרצה מקומית
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.example .env          # מלא DATABASE_URL, DATABASE_URL_UNPOOLED, JWT_SECRET
+npx prisma migrate deploy      # יוצר את הסכמה (schema=dialer בכתובת ה-DB)
+npm run db:seed                # עסק דמו + משתמשים + רשימה
+npm run dev                    # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+משתמשי דמו: `admin@demo.local / admin123`, `manager@demo.local / manager123`, `agent1@demo.local / agent123`, `agent2@demo.local / agent123`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+ללא הגדרות Telnyx המערכת רצה ב**מצב הדמיה** (מסומן בבירור בכל מסך). בהדמיה: מספר שמסתיים ב-`0` → אין מענה, `1` → תפוס, `2` → נדחה, אחרת → נענה.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## חיבור Telnyx (שיחות אמיתיות)
 
-## Learn More
+| משתנה | מקור |
+|---|---|
+| `TELEPHONY_PROVIDER=telnyx` | |
+| `TELNYX_API_KEY` | Mission Control → API Keys |
+| `TELNYX_PUBLIC_KEY` | Account Settings → Keys & Credentials → Public Key (base64) – לאימות Ed25519 של Webhooks |
+| `TELNYX_CALL_CONTROL_APP_ID` | Voice → Call Control Application. Webhook URL: `https://<domain>/api/webhooks/telnyx` |
+| `TELNYX_CREDENTIAL_CONNECTION_ID` | Voice → SIP Connections → Credential Connection (לרישום דפדפני הנציגים) |
 
-To learn more about Next.js, take a look at the following resources:
+שני החיבורים צריכים Outbound Voice Profile. מספרי העסק משויכים ל-Call Control App ומוזנים במסך הגדרות → מספרים יוצאים (E.164).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+**זרימת שיחה:** השרת מחייג קודם ל-leg של הנציג (`sip:<credential>@sip.telnyx.com`, `command_id` ייחודי), הדפדפן עונה אוטומטית, ואז השרת מחייג ללקוח עם `link_to` + `bridge_on_answer`. "נענה" נקבע רק מאירועי `call.answered`/`call.bridged` חתומים. אירועים כפולים / בסדר שגוי מטופלים (מזהה אירוע ייחודי, מכונת מצבים שמתקדמת קדימה בלבד, hangup תמיד סוגר).
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## מבנה
 
-## Deploy on Vercel
+- `src/lib/telephony/` – ממשק ספק, מתאם Telnyx (REST + אימות חתימה + פענוח Webhook), מתאם הדמיה, מעבד אירועים (`events.ts`).
+- `src/lib/dialer/` – תור לידים (נעילה אטומית `FOR UPDATE SKIP LOCKED`, DNC, חלונות חיוג, מדיניות ניסיונות), שיחות (idempotency, reconcile, תוצאות), סשנים (בעלות לשונית, heartbeat).
+- `src/app/api/` – REST. `src/components/telephony/DialerProvider.tsx` – חיבור WebRTC, polling, לולאת תותח שיחות, פס שיחה קבוע.
+- `prisma/schema.prisma` – כל הטבלאות מבודדות לפי `businessId`.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## פקודות
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`npm run typecheck` · `npm run lint` · `npm run build` · `npm run db:migrate` · `npm run db:seed` · `npx tsx scripts/dev-reset.ts` (איפוס נתוני בדיקה).
