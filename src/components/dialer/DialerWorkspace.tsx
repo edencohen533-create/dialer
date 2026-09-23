@@ -16,7 +16,7 @@ const SKIP_REASONS = ["לא זמן מתאים", "פרטים חסרים", "כבר
 
 export function DialerWorkspace() {
   const d = useDialer();
-  const { state, loading, error, refresh, dial, hangup, skipLead, saveOutcome, busy, sessionTakenOver, countdown, cancelCountdown } = d;
+  const { state, loading, error, refresh, dial, hangup, skipLead, saveOutcome, busy, sessionTakenOver, countdown, cancelCountdown, sessionSummary, dismissSummary } = d;
   const [note, setNote] = useState("");
   const [skipOpen, setSkipOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -135,6 +135,27 @@ export function DialerWorkspace() {
           <CallPanel onDialManual={dialManual} canDialLead={canDialLead} onDialLead={dialLead} onSkip={previewMode ? () => setSkipOpen(true) : undefined} />
         </aside>
       </div>
+
+      <Modal open={Boolean(sessionSummary)} onClose={dismissSummary} title={sessionSummary?.reason === "list_empty" ? "הרשימה נגמרה – סיכום סשן" : "סיכום סשן"} footer={<Button onClick={dismissSummary}>סגור</Button>}>
+        {sessionSummary && (
+          <div className="space-y-3 text-sm">
+            <div className="grid grid-cols-3 gap-2">
+              <div className="bg-panel-2 rounded-lg p-3 text-center"><p className="text-2xl font-semibold tabular">{sessionSummary.dials}</p><p className="text-xs text-muted">חיוגים</p></div>
+              <div className="bg-panel-2 rounded-lg p-3 text-center"><p className="text-2xl font-semibold tabular text-good">{sessionSummary.connected}</p><p className="text-xs text-muted">נענו</p></div>
+              <div className="bg-panel-2 rounded-lg p-3 text-center"><p className="text-2xl font-semibold tabular">{Math.round(sessionSummary.talkSeconds / 60)}</p><p className="text-xs text-muted">דקות שיחה</p></div>
+            </div>
+            {sessionSummary.outcomes.length > 0 && (
+              <ul className="divide-y divide-line">{sessionSummary.outcomes.map((o) => <li key={o.key} className="flex justify-between py-1"><span>{o.label}</span><span className="tabular">{o.count}</span></li>)}</ul>
+            )}
+            <p className="text-xs text-muted">זמן תיעוד ממוצע: {sessionSummary.avgWrapUpSeconds} שנ׳</p>
+            {sessionSummary.queue && (
+              <p className="text-xs text-muted">
+                נשארו ברשימה: {sessionSummary.queue.total} · ממתינים לחלון/ניסיון חוזר: {sessionSummary.queue.unavailable.notDueYet as number} · הושלמו: {sessionSummary.queue.unavailable.completed as number} · מוצו: {sessionSummary.queue.unavailable.exhausted as number}
+              </p>
+            )}
+          </div>
+        )}
+      </Modal>
 
       <Modal open={skipOpen} onClose={() => setSkipOpen(false)} title="דילוג על ליד – בחר סיבה">
         <div className="grid grid-cols-1 gap-2">

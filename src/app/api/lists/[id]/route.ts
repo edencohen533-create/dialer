@@ -25,6 +25,10 @@ const patchSchema = z.object({
   retryIntervalMinutes: z.number().int().min(1).max(10080).nullable().optional(),
   dialWindow: z.object({ start: z.string(), end: z.string(), days: z.array(z.number().int()), timezone: z.string().optional() }).nullable().optional(),
   scriptId: z.string().nullable().optional(),
+  phoneNumberId: z.string().nullable().optional(),
+  isDynamic: z.boolean().optional(),
+  isPaused: z.boolean().optional(),
+  archived: z.boolean().optional(),
 });
 
 export const PATCH = withAuth(async ({ req, user, params }) => {
@@ -42,8 +46,16 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
       ...(b.retryIntervalMinutes !== undefined ? { retryIntervalMinutes: b.retryIntervalMinutes } : {}),
       ...(b.dialWindow !== undefined ? { dialWindowJson: b.dialWindow === null ? undefined : (b.dialWindow as Prisma.InputJsonValue) } : {}),
       ...(b.scriptId !== undefined ? { scriptId: b.scriptId } : {}),
+      ...(b.phoneNumberId !== undefined ? { phoneNumberId: b.phoneNumberId } : {}),
+      ...(b.isDynamic !== undefined ? { isDynamic: b.isDynamic } : {}),
+      ...(b.isPaused !== undefined ? { isPaused: b.isPaused } : {}),
+      ...(b.archived !== undefined ? { archivedAt: b.archived ? new Date() : null, isActive: b.archived ? false : list.isActive } : {}),
     },
   });
+  if (b.phoneNumberId) {
+    const n = await prisma.phoneNumber.findFirst({ where: { id: b.phoneNumberId, businessId: user.businessId } });
+    if (!n) throw new ApiError("מספר יוצא לא שייך לעסק", 400, "invalid_from_number");
+  }
   return ok(updated);
 }, { minRole: "manager" });
 

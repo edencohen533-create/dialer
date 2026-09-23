@@ -17,7 +17,7 @@ interface Recent {
 }
 
 export function CallPanel({ onDialManual, canDialLead, onDialLead, onSkip }: { onDialManual: (phone: string) => void; canDialLead: boolean; onDialLead: () => void; onSkip?: () => void }) {
-  const { state, phone, hangup, sendDtmf, busy, countdown } = useDialer();
+  const { state, phone, hangup, sendDtmf, busy, countdown, acceptInbound, rejectInbound } = useDialer();
   const call = state?.activeCall ?? null;
   const [manual, setManual] = useState("");
   const [keypad, setKeypad] = useState(false);
@@ -33,6 +33,7 @@ export function CallPanel({ onDialManual, canDialLead, onDialLead, onSkip }: { o
 
   const answered = call?.status === "answered";
   const inProgress = Boolean(call && !call.endedAt);
+  const inboundRinging = Boolean(call && call.direction === "inbound" && !call.answeredAt && !call.endedAt);
   const connOk = phone.status === "ready" || phone.status === "simulation";
   const defaultNumber = numbers.find((n) => n.isDefault) ?? numbers[0];
 
@@ -96,8 +97,18 @@ export function CallPanel({ onDialManual, canDialLead, onDialLead, onSkip }: { o
           <div className="text-center py-3 text-muted text-xs">אין שיחה פעילה</div>
         )}
 
+        {inboundRinging && (
+          <div className="mt-3 rounded-lg border border-info/40 bg-info/10 p-3 text-center">
+            <p className="text-sm font-semibold text-info">📞 שיחה נכנסת</p>
+            <p className="text-xs text-muted mt-0.5">{call?.routingNote === "routed_to_owner" ? "הלקוח משויך אליך" : "נותבה אליך כנציג זמין"}</p>
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              <Button variant="good" onClick={acceptInbound} loading={busy === "accept"}>קבל</Button>
+              <Button variant="danger" onClick={rejectInbound} loading={busy === "reject"}>דחה</Button>
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-2 mt-3">
-          {inProgress ? (
+          {inboundRinging ? null : inProgress ? (
             <>
               <Button variant="danger" size="lg" className="col-span-2" onClick={hangup} loading={busy === "hangup"}>
                 נתק <Kbd>H</Kbd>
@@ -197,6 +208,8 @@ function CallStatusBlock({ call }: { call: CallDto }) {
       <Phone value={formatPhone(call.toE164)} className="text-muted" />
       <p className={cx("text-3xl font-semibold tabular mt-1", answered ? "text-good" : "text-text/70")}>{answered || ended ? formatDuration(ended ? call.talkSeconds : callElapsed(call)) : "--:--"}</p>
       {call.dialPendingSince && !ended && <p className="text-[11px] text-warn mt-1">ממתין לאישור מהספק…</p>}
+      {call.direction === "inbound" && <Badge tone="info" className="mt-1">שיחה נכנסת</Badge>}
+      {call.amdResult === "machine" && <p className="text-[11px] text-warn mt-1">זוהה תא קולי (ייתכן זיהוי שגוי) – החלט בעצמך</p>}
       {call.failureReason && ended && <p className="text-[11px] text-bad mt-1">{call.failureReason}</p>}
     </div>
   );

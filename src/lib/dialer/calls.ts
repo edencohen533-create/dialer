@@ -7,6 +7,7 @@ import type { DialMode, OutcomeKey } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/db";
 import { ApiError } from "@/lib/response";
 import { normalizePhone } from "@/lib/phone";
+import { parsePhoneNumberFromString } from "libphonenumber-js";
 import { getTelephony } from "@/lib/telephony";
 import { TelephonyRequestTimeout } from "@/lib/telephony/types";
 import { dueMockEvents } from "@/lib/telephony/mock";
@@ -37,7 +38,14 @@ export interface StartCallInput {
   phoneNumberId?: string;
 }
 
-async function resolveFromNumber(businessId: string, phoneNumberId?: string) {
+async function resolveFromNumber(businessId: string, phoneNumberId?: string, listId?: string) {
+  if (!phoneNumberId && listId) {
+    const list = await prisma.dialList.findFirst({ where: { id: listId, businessId }, select: { phoneNumberId: true } });
+    if (list?.phoneNumberId) {
+      const n = await prisma.phoneNumber.findFirst({ where: { id: list.phoneNumberId, businessId, isActive: true } });
+      if (n) return n;
+    }
+  }
   if (phoneNumberId) {
     const n = await prisma.phoneNumber.findFirst({ where: { id: phoneNumberId, businessId, isActive: true } });
     if (!n) throw new ApiError("המספר היוצא שנבחר אינו מורשה לעסק", 400, "invalid_from_number");
@@ -115,8 +123,24 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
     throw new ApiError("המספר חסום – לא ליצור קשר", 403, "dnc_blocked");
   }
 
-  const from = await resolveFromNumber(user.businessId, input.phoneNumberId);
   const settings = await getBusinessSettings(user.businessId);
+  // Business-level kill switch (manager stops all new outbound dials).
+  if (settings.dialingPaused) throw new ApiError("החיוג מושהה ברמת העסק על ידי המנהל", 409, "dialing_paused");
+  // Destination country restriction.
+  if (settings.allowedCountries.length > 0) {
+    const country = parsePhoneNumberFromString(toE164)?.country ?? "??";
+    if (!settings.allowedCountries.includes(country)) throw new ApiError(`חיוג ליעד ${country} אינו מורשה לעסק`, 403, "country_not_allowed", { country });
+  }
+  // Per-agent rate limit (counts dials created in the last 60s).
+  if (settings.maxDialsPerMinute > 0) {
+    const recent = await prisma.call.count({ where: { userId: user.id, createdAt: { gte: new Date(Date.now() - 60_000) } } });
+    if (recent >= settings.maxDialsPerMinute) throw new ApiError("חרגת ממגבלת קצב החיוג – המתן רגע", 429, "rate_limited", { limit: settings.maxDialsPerMinute });
+  }
+  // Same normalized number must not be in a live call anywhere in the business (duplicate cards).
+  const liveSame = await prisma.call.findFirst({ where: { businessId: user.businessId, toE164, endedAt: null }, select: { id: true, userId: true } });
+  if (liveSame) throw new ApiError("המספר הזה כבר בשיחה פעילה אצל נציג אחר", 409, "number_in_call", { callId: liveSame.id });
+
+  const from = await resolveFromNumber(user.businessId, input.phoneNumberId, listId);
 
   // Session validation (power/preview must run inside a live session owned by this tab)
   let sessionId: string | undefined;
@@ -373,6 +397,19 @@ export async function saveOutcome(user: SessionUser, input: SaveOutcomeInput): P
   } else if (def.addsToDnc) {
     const { addToDnc } = await import("@/lib/dialer/queue");
     await addToDnc(user.businessId, user.id, call.toE164, `outcome:${input.outcome}`);
+  }
+
+  // Automation: a sale closes the contact's pending leads in every other list of the business.
+  if (def.isSale && call.contactId) {
+    const settings = await getBusinessSettings(user.businessId);
+    if (settings.removeFromOtherListsOnSale) {
+      const r = await prisma.listLead.updateMany({
+        where: { businessId: user.businessId, contactId: call.contactId, status: { in: ["pending", "callback", "locked"] }, ...(call.leadId ? { NOT: { id: call.leadId } } : {}) },
+        data: { status: "completed", lockedByUserId: null, lockToken: null, lockExpiresAt: null, nextAttemptAt: null, preferredUserId: null },
+      });
+      await prisma.task.updateMany({ where: { businessId: user.businessId, contactId: call.contactId, status: "open", NOT: { callId: call.id } }, data: { status: "cancelled" } });
+      await audit(user.businessId, user.id, "automation", call.contactId, "automation.sale_removed_from_lists", { trigger: "outcome:sale", callId: call.id, leadsClosed: r.count, result: "ok" });
+    }
   }
 
   await prisma.user.updateMany({ where: { id: user.id, presence: "wrap_up" }, data: { presence: "available", presenceAt: new Date() } });

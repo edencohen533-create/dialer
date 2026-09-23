@@ -19,7 +19,8 @@ export default function ListsPage() {
   const [users, setUsers] = useState<Array<{ id: string; fullName: string; role: string }>>([]);
   const [scripts, setScripts] = useState<Array<{ id: string; title: string }>>([]);
   const [me, setMe] = useState<{ role: string } | null>(null);
-  const [form, setForm] = useState({ name: "", description: "", priority: 0, maxAttempts: "", retryIntervalMinutes: "", scriptId: "", agentIds: [] as string[], start: "09:00", end: "20:00", days: [0, 1, 2, 3, 4], filterSource: "", filterNeverCalled: false });
+  const [form, setForm] = useState({ name: "", description: "", priority: 0, maxAttempts: "", retryIntervalMinutes: "", scriptId: "", phoneNumberId: "", isDynamic: false, agentIds: [] as string[], start: "09:00", end: "20:00", days: [0, 1, 2, 3, 4], filterSource: "", filterNeverCalled: false });
+  const [numbers, setNumbers] = useState<Array<{ id: string; e164: string; label: string | null }>>([]);
 
   const load = useCallback(async () => {
     try {
@@ -33,6 +34,7 @@ export default function ListsPage() {
     api.get<{ user: { role: string } }>("/api/auth/me").then((m) => setMe(m.user)).catch(() => undefined);
     api.get<{ items: Array<{ id: string; fullName: string; role: string }> }>("/api/users").then((u) => setUsers(u.items)).catch(() => undefined);
     api.get<Array<{ id: string; title: string }>>("/api/scripts").then(setScripts).catch(() => undefined);
+    api.get<typeof numbers>("/api/phone-numbers").then(setNumbers).catch(() => undefined);
   }, [load]);
 
   async function create() {
@@ -40,7 +42,7 @@ export default function ListsPage() {
       const r = await api.post<{ added: number }>("/api/lists", {
         name: form.name, description: form.description || undefined, priority: form.priority,
         maxAttempts: form.maxAttempts ? Number(form.maxAttempts) : null, retryIntervalMinutes: form.retryIntervalMinutes ? Number(form.retryIntervalMinutes) : null,
-        dialWindow: { start: form.start, end: form.end, days: form.days }, scriptId: form.scriptId || null, agentIds: form.agentIds,
+        dialWindow: { start: form.start, end: form.end, days: form.days }, scriptId: form.scriptId || null, phoneNumberId: form.phoneNumberId || null, isDynamic: form.isDynamic, agentIds: form.agentIds,
         filter: form.filterSource || form.filterNeverCalled ? { source: form.filterSource || undefined, neverCalled: form.filterNeverCalled ? "true" : undefined } : undefined,
       });
       toast.success(`הרשימה נוצרה${r.added ? ` עם ${r.added} לידים` : ""}`);
@@ -89,6 +91,10 @@ export default function ListsPage() {
             <option value="">ברירת מחדל של העסק</option>
             {scripts.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
           </Select>
+          <Select label="מספר יוצא לרשימה" value={form.phoneNumberId} onChange={(e) => setForm({ ...form, phoneNumberId: e.target.value })}>
+            <option value="">ברירת מחדל של העסק</option>
+            {numbers.map((n) => <option key={n.id} value={n.id}>{n.e164} {n.label ? `· ${n.label}` : ""}</option>)}
+          </Select>
           <Input label="מקס׳ ניסיונות (ריק = הגדרת עסק)" type="number" value={form.maxAttempts} onChange={(e) => setForm({ ...form, maxAttempts: e.target.value })} />
           <Input label="מרווח בין ניסיונות (דקות)" type="number" value={form.retryIntervalMinutes} onChange={(e) => setForm({ ...form, retryIntervalMinutes: e.target.value })} />
           <div className="col-span-2">
@@ -118,6 +124,7 @@ export default function ListsPage() {
               <Input placeholder="מקור (למשל facebook)" value={form.filterSource} onChange={(e) => setForm({ ...form, filterSource: e.target.value })} />
               <label className="flex items-center gap-2 text-xs whitespace-nowrap"><input type="checkbox" checked={form.filterNeverCalled} onChange={(e) => setForm({ ...form, filterNeverCalled: e.target.checked })} /> רק שטרם חויגו</label>
             </div>
+            <label className="flex items-center gap-2 text-xs mt-2"><input type="checkbox" checked={form.isDynamic} onChange={(e) => setForm({ ...form, isDynamic: e.target.checked })} /> רשימה דינמית – ניתן לרענן ולהוסיף אנשי קשר חדשים שעונים לסינון (מוקפאת = חברות קבועה)</label>
           </div>
         </div>
       </Modal>

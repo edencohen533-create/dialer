@@ -89,19 +89,25 @@ export const telnyxAdapter: TelephonyAdapter = {
   simulation: false,
 
   async dialAgent(input: DialAgentInput): Promise<DialResult> {
-    const r = await telnyxFetch<DialResponse>("/calls", {
-      method: "POST",
-      body: JSON.stringify({
-        connection_id: env("TELNYX_CALL_CONTROL_APP_ID"),
-        to: `sip:${input.sipUsername}@sip.telnyx.com`,
-        from: input.fromE164,
-        from_display_name: "Dialer",
-        timeout_secs: input.timeoutSeconds,
-        client_state: encodeClientState({ callId: input.callId, leg: "agent" }),
-        command_id: `${input.callId}-agent`,
-      }),
-    });
+    const body: Record<string, unknown> = {
+      connection_id: env("TELNYX_CALL_CONTROL_APP_ID"),
+      to: `sip:${input.sipUsername}@sip.telnyx.com`,
+      from: input.fromE164,
+      from_display_name: (input.callerDisplay ?? "Dialer").slice(0, 60),
+      timeout_secs: input.timeoutSeconds,
+      client_state: encodeClientState({ callId: input.callId, leg: "agent" }),
+      command_id: `${input.callId}-agent`,
+    };
+    if (input.linkToLegId) {
+      body.link_to = input.linkToLegId;
+      body.bridge_on_answer = true;
+    }
+    const r = await telnyxFetch<DialResponse>("/calls", { method: "POST", body: JSON.stringify(body) });
     return { legId: r.data.call_control_id, providerSessionId: r.data.call_session_id };
+  },
+
+  async answerLeg(legId, commandId) {
+    await telnyxFetch(`/calls/${encodeURIComponent(legId)}/actions/answer`, { method: "POST", body: JSON.stringify({ command_id: commandId }) });
   },
 
   async dialLead(input: DialLeadInput): Promise<DialResult> {
@@ -225,6 +231,9 @@ interface TelnyxWebhook {
       client_state?: string;
       hangup_cause?: string;
       hangup_source?: string;
+      direction?: "incoming" | "outgoing";
+      from?: string;
+      to?: string;
       result?: string;
       recording_started_at?: string;
       recording_ended_at?: string;
@@ -257,6 +266,9 @@ export function parseTelnyxWebhook(body: TelnyxWebhook): ProviderEvent | null {
     legId: p.call_control_id,
     callId: typeof cs?.callId === "string" ? cs.callId : undefined,
     leg: cs?.leg === "agent" || cs?.leg === "lead" ? cs.leg : undefined,
+    direction: p.direction,
+    from: p.from,
+    to: p.to,
     occurredAt: d.occurred_at ? new Date(d.occurred_at) : undefined,
     hangupCause: p.hangup_cause,
     hangupSource: p.hangup_source,

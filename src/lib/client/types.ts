@@ -13,6 +13,7 @@ export interface ContactLite {
   notes?: string | null;
   ownerUserId?: string | null;
   customFields?: Record<string, unknown> | null;
+  tags?: string[];
   createdAt?: string;
 }
 
@@ -29,6 +30,8 @@ export interface LeadDto {
   lastSkipReason: string | null;
   lockToken: string | null;
   lockExpiresAt: string | null;
+  claimReason: string | null;
+  claimScore: number | null;
   contact: ContactLite;
   list: { id: string; name: string; scriptId: string | null };
 }
@@ -36,6 +39,9 @@ export interface LeadDto {
 export interface CallDto {
   id: string;
   mode: DialMode;
+  direction: "outbound" | "inbound";
+  routingNote: string | null;
+  amdResult: string | null;
   provider: "mock" | "telnyx";
   status: "created" | "dialing_agent" | "agent_connected" | "dialing_lead" | "ringing" | "answered" | "ended" | "failed";
   telephonyResult: "answered" | "no_answer" | "busy" | "failed" | "cancelled" | "rejected" | null;
@@ -90,7 +96,7 @@ export interface DialerStateDto {
   wrapUpCall: CallDto | null;
   presence: string;
   sipUsername: string | null;
-  queue: { byStatus: Record<string, number>; dueNow: number; total: number } | null;
+  queue: { byStatus: Record<string, number>; dueNow: number; dueIgnoringWindow: number; total: number; unavailable: { notDueYet: number; inProgress: number; exhausted: number; completed: number; dnc: number; removed: number; outsideDialWindow: boolean; listPaused: boolean; listInactive: boolean } } | null;
   script: { id: string; title: string; body: string } | null;
   draft: string | null;
   settings: { wrapUpSeconds: number; autoDialCountdownSeconds: number; lockTtlSeconds: number; dialWindow: { start: string; end: string; days: number[] } };

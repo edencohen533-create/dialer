@@ -211,7 +211,9 @@ async function main() {
     await page.locator("select").nth(1).selectOption({ value: "5" });
     const before = await callCount(page);
     await page.getByRole("button", { name: /התחל תותח שיחות/ }).click();
-    await page.getByText("תוצאת שיחה").waitFor({ timeout: 60000 }); // first lead ends (no answer / or answered → we hang up)
+    const first = await waitCallStatus(page, ["answered", "ended"], 40000);
+    if (first && !first.endedAt) { await sleep(1500); await page.getByRole("button", { name: /^נתק/ }).click(); }
+    await page.getByText("תוצאת שיחה").waitFor({ timeout: 60000 });
     await shot("power-wrapup");
     const endDisabled = await page.getByRole("button", { name: "סיים סשן" }).isDisabled().catch(() => null);
     await page.keyboard.press("4"); await page.keyboard.press("Enter");
@@ -226,6 +228,7 @@ async function main() {
     let c3 = c2;
     for (let i = 0; i < 30 && c3 === c2; i++) { await sleep(700); c3 = await callCount(page); }
     await shot("resumed");
+    { const st2 = (await apiJson(page, "/api/dialer/state")).data; if (st2.activeCall && !st2.activeCall.endedAt) await waitCallStatus(page, ["answered", "ended"], 30000); }
     // make sure end-session is blocked during a live call
     const st = (await apiJson(page, "/api/dialer/state")).data;
     let endDuringCall: boolean | null = null;
@@ -351,6 +354,111 @@ async function main() {
     return { pass: list && tasks && tel, actual: `lists=${list}, tasks=${tasks}, telephony tab=${tel}` };
   }, P);
 
+
+  await t("U14", "שיחות נכנסות", "שיחה נכנסת מוצגת לנציג עם קבל/דחה; קבלה → בשיחה; ניתוק → תיעוד", "פס 'שיחה נכנסת' + כפתורים; אחרי קבלה טיימר; אחרי ניתוק פאנל תוצאה", async (shot) => {
+    await endAnyCall(page);
+    await page.goto(`${BASE}/dialer`);
+    await page.getByRole("button", { name: "חיוג ידני", exact: true }).click();
+    await page.getByRole("button", { name: /התחל סשן ידני/ }).click();
+    await sleep(2500);
+    const mctx = await ctxWithMic();
+    const mpage = await login(mctx, "manager@demo.local", "manager123");
+    const sim = await apiJson(mpage, "/api/dev/simulate-inbound", { method: "POST", body: JSON.stringify({ from: "0501234533" }) });
+    await mctx.close();
+    await page.getByText("📞 שיחה נכנסת").waitFor({ timeout: 15000 });
+    await shot("inbound-ringing");
+    await page.getByRole("button", { name: "קבל", exact: true }).click();
+    const answered = await waitCallStatus(page, ["answered"]);
+    await sleep(2000);
+    await page.locator("aside").last().getByText("בשיחה", { exact: true }).first().waitFor();
+    await page.getByRole("button", { name: /^נתק/ }).click();
+    await page.getByText("תוצאת שיחה").waitFor({ timeout: 20000 });
+    await shot("inbound-wrapup");
+    await page.keyboard.press("1"); await page.keyboard.press("Enter");
+    await page.getByText("התוצאה נשמרה").waitFor();
+    await endAnyCall(page);
+    return { pass: sim?.data?.id && answered?.id === sim.data.id && answered.direction === "inbound", actual: `routed=${sim?.data?.routingNote}; answered inbound=${answered?.direction === "inbound"}` };
+  }, P);
+
+  await t("U15", "תותח שיחות", "סיום רשימה: סיכום סשן אמיתי ומודל", "אחרי הליד האחרון מוצג 'הרשימה נגמרה – סיכום סשן' עם מספרים", async (shot) => {
+    await endAnyCall(page);
+    const mctx = await ctxWithMic();
+    const mpage = await login(mctx, "manager@demo.local", "manager123");
+    // one-lead list: the lead rings out (…4500 ends with 0 → no answer)
+    const contacts = (await apiJson(mpage, "/api/contacts?q=0501234500")).data.items as any[];
+    const list = (await apiJson(mpage, "/api/lists", { method: "POST", body: JSON.stringify({ name: "QA-UI-one-" + Date.now(), contactIds: [contacts[0].id] }) })).data;
+    await mctx.close();
+    await page.goto(`${BASE}/dialer`);
+    await page.getByRole("button", { name: "תותח שיחות", exact: true }).click();
+    await page.waitForFunction((id) => [...document.querySelectorAll("option")].some((o) => (o as HTMLOptionElement).value === id), list.id, { timeout: 15000 });
+    await page.locator("select").first().selectOption({ value: list.id });
+    await page.locator("select").nth(1).selectOption({ value: "0" });
+    await page.getByRole("button", { name: /התחל תותח שיחות/ }).click();
+    const first = await waitCallStatus(page, ["answered", "ended"], 40000);
+    const sessionList = (await apiJson(page, "/api/dialer/state")).data.session?.listId;
+    if (first && !first.endedAt) { await sleep(1000); await page.getByRole("button", { name: /^נתק/ }).click(); }
+    await page.getByText("תוצאת שיחה").waitFor({ timeout: 60000 });
+    await page.keyboard.press("6"); await page.keyboard.press("Enter"); // wrong number → lead closed → list empty
+    await page.getByText("הרשימה נגמרה – סיכום סשן").waitFor({ timeout: 45000 });
+    await shot("session-summary");
+    const text = await page.locator('[role="dialog"]').textContent();
+    await page.locator('[role="dialog"] footer').getByRole("button", { name: "סגור" }).click();
+    const st = (await apiJson(page, "/api/dialer/state")).data;
+    return { pass: sessionList === list.id && Boolean(text?.includes("חיוגים")) && !st.session, actual: `list ok=${sessionList === list.id}; modal="${text?.slice(0, 80)}"; session ended=${!st.session}` };
+  }, P);
+
+  await t("U16", "מנהל", "kill switch: מנהל עוצר חיוגים – הנציג נחסם עם הודעה ברורה", "חיוג ידני מקבל toast 'החיוג מושהה'; אחרי חידוש עובד", async (shot) => {
+    await endAnyCall(page);
+    const mctx = await ctxWithMic();
+    const mpage = await login(mctx, "manager@demo.local", "manager123");
+    await mpage.goto(`${BASE}/manager`);
+    await mpage.getByRole("button", { name: /עצור חיוגים חדשים/ }).click();
+    await mpage.getByText("החיוג היוצא מושהה ברמת העסק").waitFor({ timeout: 10000 });
+    await mpage.screenshot({ path: path.join(SHOTS, "U16-manager-paused.png") });
+    await page.goto(`${BASE}/dialer`);
+    await page.getByPlaceholder("050-1234567").fill("0501234500");
+    await page.getByRole("button", { name: "חייג", exact: true }).click();
+    const blocked = await page.getByText("החיוג מושהה ברמת העסק").waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
+    await shot("agent-blocked");
+    await mpage.getByRole("button", { name: /חדש חיוגים לכל העסק/ }).click();
+    await sleep(1500);
+    await mctx.close();
+    const before = await callCount(page);
+    await page.getByRole("button", { name: "חייג", exact: true }).click();
+    await waitCallStatus(page, ["ringing", "answered", "ended"]);
+    const after = await callCount(page);
+    await endAnyCall(page);
+    return { pass: blocked && after !== before, actual: `נחסם עם הודעה=${blocked}; אחרי חידוש שיחה חדשה=${after !== before}` };
+  }, P);
+
+  await t("U17", "תעדוף", "'למה עכשיו' מוצג בכרטיס הליד", "טקסט הסבר תעדוף מופיע", async (shot) => {
+    await endAnyCall(page);
+    await requeueDemoList();
+    await page.goto(`${BASE}/dialer`);
+    await page.getByRole("button", { name: "Preview" }).click();
+    await page.getByRole("button", { name: /התחל Preview/ }).click();
+    const el = page.getByText(/^למה עכשיו:/);
+    const ok = await el.waitFor({ timeout: 20000 }).then(() => true).catch(() => false);
+    const text = ok ? await el.textContent() : null;
+    await shot("why-now");
+    await endAnyCall(page);
+    return { pass: ok, actual: `"${text?.trim()}"` };
+  }, P);
+
+  await t("U18", "הגדרות", "טאבים חדשים: תעדוף, בטיחות, היסטוריה נטענים עם נתונים", "", async () => {
+    const mctx = await ctxWithMic();
+    const mpage = await login(mctx, "admin@demo.local", "admin123");
+    await mpage.goto(`${BASE}/settings`);
+    await mpage.getByRole("button", { name: "תעדוף לידים", exact: true }).click();
+    const prio = await mpage.getByLabel("חזרה שהגיע מועדה").waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
+    await mpage.getByRole("button", { name: "בטיחות ושיחות נכנסות", exact: true }).click();
+    const safety = await mpage.getByText("עצירת חיוגים חדשים לכל העסק").waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
+    await mpage.getByRole("button", { name: "היסטוריית שינויים", exact: true }).click();
+    const hist = await mpage.getByText("היסטוריית שינויים ואוטומציות").waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
+    await mpage.screenshot({ path: path.join(SHOTS, "U18-settings-history.png") });
+    await mctx.close();
+    return { pass: prio && safety && hist, actual: `prio=${prio} safety=${safety} history=${hist}` };
+  });
   await ctx.close();
   await browser.close();
   const summary = { total: rows.length, passed: rows.filter((r) => r.status === "עבר").length, failed: rows.filter((r) => r.status === "נכשל").length };

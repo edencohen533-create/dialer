@@ -7,19 +7,84 @@ export interface DialWindow {
   timezone?: string;
 }
 
+/**
+ * Transparent lead prioritization. Every weight is visible to the manager and
+ * every served lead carries a short explanation of which factors applied.
+ * score = Σ(factor × weight); higher = served first.
+ */
+export interface PrioritizationWeights {
+  /** Callback whose time has come (per lead, once). */
+  callbackDue: number;
+  /** Per point of list-lead priority (0–100). */
+  priority: number;
+  /** Per hour since creation for leads never attempted, capped at newLeadMaxHours. */
+  newLeadPerHour: number;
+  newLeadMaxHours: number;
+  /** Per hour waiting since the last attempt (or creation) – prevents starvation. */
+  agingPerHour: number;
+  agingMaxHours: number;
+  /** Subtracted per previous attempt. */
+  attemptPenalty: number;
+  /** Bonus when the contact's owner is the agent pulling. */
+  ownerMatch: number;
+  /** Per-source bonus, e.g. { facebook: 10 }. */
+  sourceWeights: Record<string, number>;
+  /** Bonus when the last outcome was "answered_interested" (re-engage). */
+  interestedBefore: number;
+}
+
 export interface BusinessSettings {
   wrapUpSeconds: number;
   autoDialCountdownSeconds: number;
   maxAttempts: number;
   retryIntervalMinutes: number;
   busyRetryMinutes: number;
+  /** Technical failure (provider error before ringing): re-queue after this many minutes, attempt not counted. */
+  technicalFailureRetryMinutes: number;
   lockTtlSeconds: number;
   ringTimeoutSeconds: number;
   recordingEnabled: boolean;
-  /** Text describing the announcement policy; actual announcement playback is a provider feature. */
   recordingAnnouncement: string;
+  /** Days to keep provider recordings; 0 = keep forever. */
+  recordingRetentionDays: number;
+  /** Answering-machine detection (advisory only – never auto-hangs up). */
+  amdEnabled: boolean;
   dialWindow: DialWindow;
+  prioritization: PrioritizationWeights;
+  /** Keep a lead with the agent who last worked it (retry outcomes). */
+  stickyOwner: boolean;
+  /** On "sale": close the contact's pending leads in every other list of the business. */
+  removeFromOtherListsOnSale: boolean;
+  /** Kill switch: no new outbound dials for the whole business. */
+  dialingPaused: boolean;
+  /** ISO 3166-1 alpha-2 codes allowed as destinations; empty = any. */
+  allowedCountries: string[];
+  /** Per-agent outbound dial rate limit. 0 = unlimited. */
+  maxDialsPerMinute: number;
+  inbound: {
+    /** Route to the contact's owner first when they are available. */
+    preferOwner: boolean;
+    /** What to do when no agent is available: hangup | voicemail_unsupported. */
+    noAgentAction: "hangup";
+    /** Create a callback task for missed inbound calls. */
+    createCallbackTask: boolean;
+    /** Only accept inbound calls inside the dial window. */
+    respectDialWindow: boolean;
+  };
 }
+
+export const DEFAULT_PRIORITIZATION: PrioritizationWeights = {
+  callbackDue: 100,
+  priority: 1,
+  newLeadPerHour: 1,
+  newLeadMaxHours: 48,
+  agingPerHour: 0.25,
+  agingMaxHours: 240,
+  attemptPenalty: 8,
+  ownerMatch: 15,
+  sourceWeights: {},
+  interestedBefore: 20,
+};
 
 export const DEFAULT_SETTINGS: BusinessSettings = {
   wrapUpSeconds: 60,
@@ -27,11 +92,21 @@ export const DEFAULT_SETTINGS: BusinessSettings = {
   maxAttempts: 3,
   retryIntervalMinutes: 120,
   busyRetryMinutes: 15,
+  technicalFailureRetryMinutes: 10,
   lockTtlSeconds: 90,
   ringTimeoutSeconds: 30,
   recordingEnabled: false,
   recordingAnnouncement: "",
+  recordingRetentionDays: 0,
+  amdEnabled: false,
   dialWindow: { start: "09:00", end: "20:00", days: [0, 1, 2, 3, 4], timezone: "Asia/Jerusalem" },
+  prioritization: DEFAULT_PRIORITIZATION,
+  stickyOwner: false,
+  removeFromOtherListsOnSale: true,
+  dialingPaused: false,
+  allowedCountries: ["IL"],
+  maxDialsPerMinute: 0,
+  inbound: { preferOwner: true, noAgentAction: "hangup", createCallbackTask: true, respectDialWindow: false },
 };
 
 export function mergeSettings(raw: unknown): BusinessSettings {
@@ -40,6 +115,9 @@ export function mergeSettings(raw: unknown): BusinessSettings {
     ...DEFAULT_SETTINGS,
     ...r,
     dialWindow: { ...DEFAULT_SETTINGS.dialWindow, ...(r.dialWindow ?? {}) },
+    prioritization: { ...DEFAULT_PRIORITIZATION, ...(r.prioritization ?? {}), sourceWeights: { ...(r.prioritization?.sourceWeights ?? {}) } },
+    inbound: { ...DEFAULT_SETTINGS.inbound, ...(r.inbound ?? {}) },
+    allowedCountries: Array.isArray(r.allowedCountries) ? r.allowedCountries : DEFAULT_SETTINGS.allowedCountries,
   };
 }
 

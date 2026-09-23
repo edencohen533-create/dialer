@@ -88,6 +88,21 @@ interface Ctx {
   countdown: { secondsLeft: number; leadId: string | null } | null;
   cancelCountdown: () => void;
   lastError: { code: string; message: string } | null;
+  acceptInbound: () => Promise<void>;
+  rejectInbound: () => Promise<void>;
+  sessionSummary: SessionSummary | null;
+  dismissSummary: () => void;
+}
+
+export interface SessionSummary {
+  session: { id: string; mode: DialMode; status: string; startedAt: string; endedAt: string | null; dialsCount: number };
+  dials: number;
+  connected: number;
+  talkSeconds: number;
+  avgWrapUpSeconds: number;
+  outcomes: Array<{ key: string; label: string; count: number }>;
+  queue: { dueNow: number; total: number; unavailable: Record<string, number | boolean> } | null;
+  reason: "list_empty" | "ended";
 }
 
 const DialerContext = createContext<Ctx | null>(null);
@@ -114,6 +129,7 @@ export function DialerProvider({ children }: { children: ReactNode }) {
   const [lastError, setLastError] = useState<Ctx["lastError"]>(null);
   const [sessionTakenOver, setSessionTakenOver] = useState(false);
   const [countdown, setCountdown] = useState<Ctx["countdown"]>(null);
+  const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(null);
   const browserSessionId = useMemo(() => getBrowserSessionId(), []);
 
   // ── Phone (WebRTC) state ─────────────────────────────────────────────
@@ -305,7 +321,9 @@ export function DialerProvider({ children }: { children: ReactNode }) {
           const s = stateRef.current;
           const ownsSession = s?.session ? s.session.ownedByThisTab !== false : true;
           const ownsCall = s?.activeCall ? ownsCallRef.current.has(s.activeCall.id) || ownsSession : ownsSession;
-          if (ownsCall) call.answer().catch(() => setPhoneError("לא ניתן לענות לשיחה בדפדפן"));
+          // Customer-initiated (inbound) calls are NOT auto-answered – the agent accepts or rejects in the UI.
+          const isCustomerInbound = s?.activeCall?.direction === "inbound";
+          if (ownsCall && !isCustomerInbound) call.answer().catch(() => setPhoneError("לא ניתן לענות לשיחה בדפדפן"));
         }
         if (call.state === "hangup" || call.state === "destroy") {
           if (sdkCallRef.current?.id === call.id) sdkCallRef.current = null;
@@ -441,13 +459,27 @@ export function DialerProvider({ children }: { children: ReactNode }) {
     if (!s?.session || s.session.mode !== "power" || s.session.status !== "active") return;
     const lead = s.lead && s.lead.status === "locked" ? s.lead : await nextLead();
     if (!lead) {
-      toast.info("אין לידים זמינים כרגע – בודק שוב בעוד 30 שניות");
+      // Nothing due. If the list is truly exhausted (nothing waiting for a retry window either) end the session with a real summary.
+      const q = stateRef.current?.queue;
+      const nothingLater = !q || (q.total > 0 && q.dueIgnoringWindow === 0 && (q.unavailable?.notDueYet ?? 0) === 0 && !q.unavailable?.outsideDialWindow && (q.unavailable?.inProgress ?? 0) === 0);
+      if (nothingLater && s.session) {
+        try {
+          const sum = await api.get<SessionSummary>(`/api/dialer/session/summary?sessionId=${s.session.id}`);
+          await api.delete("/api/dialer/session", { sessionId: s.session.id, browserSessionId });
+          await refresh();
+          setSessionSummary({ ...sum, reason: "list_empty" });
+        } catch (err) {
+          handleErr(err);
+        }
+        return;
+      }
+      toast.info(q?.unavailable?.outsideDialWindow ? "מחוץ לחלון החיוג של הרשימה – בודק שוב בעוד 30 שניות" : "אין לידים זמינים כרגע – בודק שוב בעוד 30 שניות");
       if (emptyQueueRetry.current) clearTimeout(emptyQueueRetry.current);
       emptyQueueRetry.current = setTimeout(() => advancePowerRef.current(), 30000);
       return;
     }
     await dial({ mode: "power", leadId: lead.id, lockToken: lead.lockToken ?? undefined });
-  }, [dial, nextLead]);
+  }, [dial, nextLead, browserSessionId, handleErr, refresh]);
   useEffect(() => {
     advancePowerRef.current = advancePower;
   }, [advancePower]);
@@ -531,12 +563,52 @@ export function DialerProvider({ children }: { children: ReactNode }) {
     cancelCountdown();
     if (emptyQueueRetry.current) clearTimeout(emptyQueueRetry.current);
     try {
+      const sum = await api.get<SessionSummary>(`/api/dialer/session/summary?sessionId=${s.session.id}`).catch(() => null);
       await api.delete("/api/dialer/session", { sessionId: s.session.id, browserSessionId });
       await refresh();
+      if (sum && sum.dials > 0) setSessionSummary({ ...sum, reason: "ended" });
     } catch (err) {
       handleErr(err);
     }
   }, [browserSessionId, cancelCountdown, handleErr, refresh]);
+
+  const acceptInbound = useCallback(async () => {
+    const c = stateRef.current?.activeCall;
+    if (!c || c.direction !== "inbound") return;
+    setBusy("accept");
+    try {
+      try {
+        await sdkCallRef.current?.answer();
+      } catch {
+        /* simulation has no SDK leg */
+      }
+      await api.post(`/api/dialer/call/${c.id}/accept`);
+      await refresh();
+    } catch (err) {
+      handleErr(err, "שגיאה בקבלת השיחה");
+    } finally {
+      setBusy(null);
+    }
+  }, [handleErr, refresh]);
+
+  const rejectInbound = useCallback(async () => {
+    const c = stateRef.current?.activeCall;
+    if (!c || c.direction !== "inbound") return;
+    setBusy("reject");
+    try {
+      try {
+        await sdkCallRef.current?.hangup();
+      } catch {
+        /* ignore */
+      }
+      await api.post(`/api/dialer/call/${c.id}/reject`);
+      await refresh();
+    } catch (err) {
+      handleErr(err, "שגיאה בדחיית השיחה");
+    } finally {
+      setBusy(null);
+    }
+  }, [handleErr, refresh]);
 
   const skipLead = useCallback(
     async (reason: string) => {
@@ -617,13 +689,13 @@ export function DialerProvider({ children }: { children: ReactNode }) {
     [advancePower, handleErr, nextLead, refresh, startCountdown],
   );
 
-  // Stop any pending auto-advance if the tab lost the session or the session ended.
+  // Stop any pending auto-advance if the tab lost the session, the session ended, or a call (e.g. inbound) is live.
   useEffect(() => {
-    if (sessionTakenOver || !state?.session || state.session.status !== "active") {
+    if (sessionTakenOver || !state?.session || state.session.status !== "active" || state.activeCall) {
       if (countdownTimer.current) cancelCountdown();
       if (emptyQueueRetry.current) clearTimeout(emptyQueueRetry.current);
     }
-  }, [sessionTakenOver, state?.session, cancelCountdown]);
+  }, [sessionTakenOver, state?.session, state?.activeCall, cancelCountdown]);
 
   const value: Ctx = {
     state,
@@ -662,6 +734,10 @@ export function DialerProvider({ children }: { children: ReactNode }) {
     countdown,
     cancelCountdown,
     lastError,
+    acceptInbound,
+    rejectInbound,
+    sessionSummary,
+    dismissSummary: () => setSessionSummary(null),
   };
 
   return (

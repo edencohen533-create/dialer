@@ -7,7 +7,7 @@ import { Badge, Button, Input, Modal, Phone, Select, Spinner, Stat } from "@/com
 import { LEAD_STATUS_LABEL, formatDateTime, formatPhone } from "@/lib/client/format";
 import { OUTCOMES } from "@/lib/outcomes";
 
-interface ListFull { id: string; name: string; description: string | null; isActive: boolean; priority: number; maxAttempts: number | null; retryIntervalMinutes: number | null; dialWindowJson: { start: string; end: string; days: number[] } | null; agents: Array<{ user: { id: string; fullName: string } }>; stats: { byStatus: Record<string, number>; dueNow: number; total: number } }
+interface ListFull { id: string; name: string; description: string | null; isActive: boolean; isPaused: boolean; isDynamic: boolean; archivedAt: string | null; lastRefreshedAt: string | null; priority: number; maxAttempts: number | null; retryIntervalMinutes: number | null; dialWindowJson: { start: string; end: string; days: number[] } | null; agents: Array<{ user: { id: string; fullName: string } }>; stats: { byStatus: Record<string, number>; dueNow: number; total: number; unavailable: { notDueYet: number; inProgress: number; exhausted: number; completed: number; dnc: number; removed: number; outsideDialWindow: boolean; listPaused: boolean; listInactive: boolean } } }
 interface LeadRow { id: string; status: string; attempts: number; priority: number; lastAttemptAt: string | null; nextAttemptAt: string | null; lastOutcome: string | null; lastSkipReason: string | null; contact: { id: string; fullName: string; phoneE164: string; source: string | null }; lockedBy: { fullName: string } | null }
 
 export default function ListPage({ params }: { params: Promise<{ id: string }> }) {
@@ -64,6 +64,15 @@ export default function ListPage({ params }: { params: Promise<{ id: string }> }
       load();
     } catch (e) { toast.error((e as Error).message); }
   }
+  async function patchList(body: object, msg: string) { try { await api.patch(`/api/lists/${id}`, body); toast.success(msg); load(); } catch (e) { toast.error((e as Error).message); } }
+  async function duplicate() { try { const r = await api.post<{ id: string; copied: number }>(`/api/lists/${id}/duplicate`, { withLeads: true }); toast.success(`שוכפל עם ${r.copied} לידים`); window.location.href = `/lists/${r.id}`; } catch (e) { toast.error((e as Error).message); } }
+  async function refresh() { try { const r = await api.post<{ added: number }>(`/api/lists/${id}/refresh`); toast.success(`רוענן: נוספו ${r.added}`); load(); } catch (e) { toast.error((e as Error).message); } }
+  async function transfer(leadId: string) {
+    const toUserId = window.prompt("מזהה/שם נציג יעד (ריק = חזרה למאגר):\n" + users.filter((u) => u.role !== "admin").map((u) => `${u.fullName} = ${u.id}`).join("\n"));
+    if (toUserId === null) return;
+    const match = users.find((u) => u.id === toUserId.trim() || u.fullName === toUserId.trim());
+    try { await api.post(`/api/leads/${leadId}/transfer`, { toUserId: toUserId.trim() ? match?.id ?? toUserId.trim() : null }); toast.success("הליד הועבר"); load(); } catch (e) { toast.error((e as Error).message); }
+  }
   async function saveAgents() {
     try { await api.put(`/api/lists/${id}/agents`, { agentIds }); setAgentsOpen(false); load(); } catch (e) { toast.error((e as Error).message); }
   }
@@ -77,14 +86,26 @@ export default function ListPage({ params }: { params: Promise<{ id: string }> }
         <h1 className="text-lg font-semibold">{list.name}</h1>
         <Badge tone={list.isActive ? "good" : "neutral"}>{list.isActive ? "פעילה" : "לא פעילה"}</Badge>
         {list.dialWindowJson && <span className="text-xs text-muted ltr">{list.dialWindowJson.start}–{list.dialWindowJson.end}</span>}
+        {list.isPaused && <Badge tone="bad">מושהית</Badge>}
+        {list.archivedAt && <Badge tone="neutral">בארכיון</Badge>}
+        <Badge tone="neutral">{list.isDynamic ? "דינמית" : "מוקפאת"}</Badge>
         {isManager && (
-          <div className="ms-auto flex gap-2">
+          <div className="ms-auto flex flex-wrap gap-2">
+            {list.isDynamic && <Button size="sm" variant="secondary" onClick={refresh}>רענן מהסינון</Button>}
+            <Button size="sm" variant="secondary" onClick={duplicate}>שכפל</Button>
+            <Button size="sm" variant="secondary" onClick={() => patchList({ isPaused: !list.isPaused }, list.isPaused ? "החיוג ברשימה חודש" : "החיוג ברשימה הושהה")}>{list.isPaused ? "חדש חיוג" : "השהה חיוג"}</Button>
+            <Button size="sm" variant="secondary" onClick={() => patchList({ archived: !list.archivedAt }, list.archivedAt ? "הוצא מארכיון" : "הועבר לארכיון")}>{list.archivedAt ? "הוצא מארכיון" : "ארכב"}</Button>
             <Button size="sm" variant="secondary" onClick={() => setAgentsOpen(true)}>שיוך נציגים ({list.agents.length || "כולם"})</Button>
             <Button size="sm" variant="secondary" onClick={() => setAddOpen(true)}>+ הוסף לידים מסינון</Button>
             <Button size="sm" variant={list.isActive ? "danger" : "good"} onClick={toggleActive}>{list.isActive ? "השבת רשימה" : "הפעל רשימה"}</Button>
           </div>
         )}
       </div>
+      <p className="text-xs text-muted">
+        לא זמינים עכשיו: ממתינים לניסיון חוזר/חלון <b className="text-text tabular">{s.unavailable.notDueYet}</b> · בטיפול <b className="text-text tabular">{s.unavailable.inProgress}</b> · מוצו <b className="text-text tabular">{s.unavailable.exhausted}</b> · הושלמו <b className="text-text tabular">{s.unavailable.completed}</b> · DNC <b className="text-text tabular">{s.unavailable.dnc}</b> · הוסרו <b className="text-text tabular">{s.unavailable.removed}</b>
+        {s.unavailable.outsideDialWindow && <Badge tone="warn" className="ms-2">מחוץ לחלון החיוג</Badge>}
+        {s.unavailable.listPaused && <Badge tone="bad" className="ms-2">הרשימה מושהית</Badge>}
+      </p>
       <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
         <Stat label="בתור עכשיו" value={s.dueNow} tone="good" />
         <Stat label="ממתינים" value={s.byStatus.pending ?? 0} />
@@ -114,7 +135,7 @@ export default function ListPage({ params }: { params: Promise<{ id: string }> }
           <thead className="text-xs text-muted bg-white/3">
             <tr>
               {isManager && <th className="px-3 w-8"><input type="checkbox" checked={sel.size === rows.length && rows.length > 0} onChange={(e) => setSel(e.target.checked ? new Set(rows.map((r) => r.id)) : new Set())} /></th>}
-              <th className="text-start px-3 h-9 font-medium">שם</th><th className="text-start px-3 font-medium">טלפון</th><th className="text-start px-3 font-medium">מקור</th><th className="text-start px-3 font-medium">סטטוס</th><th className="text-start px-3 font-medium">ניסיונות</th><th className="text-start px-3 font-medium">תוצאה אחרונה</th><th className="text-start px-3 font-medium">ניסיון אחרון</th><th className="text-start px-3 font-medium">ניסיון הבא</th>
+              <th className="text-start px-3 h-9 font-medium">שם</th><th className="text-start px-3 font-medium">טלפון</th><th className="text-start px-3 font-medium">מקור</th><th className="text-start px-3 font-medium">סטטוס</th><th className="text-start px-3 font-medium">ניסיונות</th><th className="text-start px-3 font-medium">תוצאה אחרונה</th><th className="text-start px-3 font-medium">ניסיון אחרון</th><th className="text-start px-3 font-medium">ניסיון הבא</th>{isManager && <th></th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
@@ -129,6 +150,7 @@ export default function ListPage({ params }: { params: Promise<{ id: string }> }
                 <td className="px-3 text-muted">{OUTCOMES.find((o) => o.key === r.lastOutcome)?.label ?? (r.lastSkipReason ? `דילוג: ${r.lastSkipReason}` : "—")}</td>
                 <td className="px-3 text-muted text-xs tabular">{formatDateTime(r.lastAttemptAt)}</td>
                 <td className="px-3 text-muted text-xs tabular">{formatDateTime(r.nextAttemptAt)}</td>
+                {isManager && <td className="px-3 text-end">{r.status !== "in_call" && <button onClick={() => transfer(r.id)} className="text-xs text-[#aab3ff] hover:underline">העבר</button>}</td>}
               </tr>
             ))}
           </tbody>

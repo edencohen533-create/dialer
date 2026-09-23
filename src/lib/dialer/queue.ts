@@ -10,6 +10,7 @@ import { ApiError } from "@/lib/response";
 import { OUTCOME_BY_KEY } from "@/lib/outcomes";
 import { getBusinessSettings, isWithinDialWindow, nextDialWindowOpening, type DialWindow } from "@/lib/settings";
 import { audit } from "@/lib/audit";
+import { explainScore, scoreSql } from "@/lib/dialer/prioritization";
 
 const CALLBACK_GRACE_MINUTES = 60;
 
@@ -28,9 +29,10 @@ export async function listDialWindow(businessId: string, listId: string | null):
 
 /** Make sure the agent may work this list. */
 export async function assertListAccess(businessId: string, userId: string, role: string, listId: string) {
-  const list = await prisma.dialList.findFirst({ where: { id: listId, businessId }, select: { id: true, isActive: true, agents: { select: { userId: true } } } });
+  const list = await prisma.dialList.findFirst({ where: { id: listId, businessId }, select: { id: true, isActive: true, isPaused: true, archivedAt: true, agents: { select: { userId: true } } } });
   if (!list) throw new ApiError("רשימה לא נמצאה", 404, "not_found");
-  if (!list.isActive) throw new ApiError("הרשימה אינה פעילה", 400, "list_inactive");
+  if (!list.isActive || list.archivedAt) throw new ApiError("הרשימה אינה פעילה", 400, "list_inactive");
+  if (list.isPaused) throw new ApiError("הרשימה מושהית על ידי המנהל", 409, "list_paused");
   if (role === "agent" && list.agents.length > 0 && !list.agents.some((a) => a.userId === userId)) {
     throw new ApiError("הרשימה אינה משויכת אליך", 403, "forbidden");
   }
@@ -51,6 +53,7 @@ export async function currentLockedLead(userId: string) {
  */
 export async function claimNextLead(businessId: string, userId: string, listId: string) {
   const settings = await getBusinessSettings(businessId);
+  if (settings.dialingPaused) throw new ApiError("החיוג מושהה ברמת העסק על ידי המנהל", 409, "dialing_paused");
   const window = await listDialWindow(businessId, listId);
   if (!isWithinDialWindow(window)) {
     const next = nextDialWindowOpening(window);
@@ -93,9 +96,7 @@ export async function claimNextLead(businessId: string, userId: string, listId: 
           SELECT 1 FROM ${T("dnc_entries")} d WHERE d.business_id = l.business_id AND d.phone_e164 = c.phone_e164
         )
       ORDER BY
-        (l.status = 'callback'::${E}) DESC,
-        l.priority DESC,
-        l.next_attempt_at ASC NULLS FIRST,
+        ${scoreSql(settings.prioritization, userId)} DESC,
         l.created_at ASC
       LIMIT 1
       FOR UPDATE OF l SKIP LOCKED
@@ -103,11 +104,14 @@ export async function claimNextLead(businessId: string, userId: string, listId: 
     RETURNING id
   `);
   if (rows.length === 0) return null;
-  const lead = await prisma.listLead.findUnique({
+  const claimed = await prisma.listLead.findUnique({ where: { id: rows[0].id }, include: { contact: true } });
+  const { score, reason } = explainScore(settings.prioritization, claimed!, userId);
+  const lead = await prisma.listLead.update({
     where: { id: rows[0].id },
+    data: { claimReason: reason, claimScore: score },
     include: { contact: true, list: { select: { id: true, name: true, scriptId: true } } },
   });
-  await audit(businessId, userId, "lead", rows[0].id, "lead.claimed", { listId });
+  await audit(businessId, userId, "lead", rows[0].id, "lead.claimed", { listId, score, reason });
   return lead;
 }
 
@@ -202,7 +206,7 @@ export async function applyOutcomeToLead(opts: {
       const minutes = outcome === "busy" ? settings.busyRetryMinutes : (lead.list.retryIntervalMinutes ?? settings.retryIntervalMinutes);
       let next = new Date(Date.now() + minutes * 60_000);
       if (!isWithinDialWindow(window, next)) next = nextDialWindowOpening(window, next) ?? next;
-      data = { ...data, status: "pending", nextAttemptAt: next };
+      data = { ...data, status: "pending", nextAttemptAt: next, preferredUserId: settings.stickyOwner ? userId : null };
     }
   } else {
     data = { ...data, status: "completed" };
@@ -238,12 +242,49 @@ export async function removeFromDnc(businessId: string, userId: string, phoneE16
 }
 
 /** Queue counters for a list (used by the workspace and list pages). */
+/** Queue counters + why leads are NOT available right now. */
 export async function listQueueStats(listId: string) {
-  const grouped = await prisma.listLead.groupBy({ by: ["status"], where: { listId }, _count: { _all: true } });
+  const now = new Date();
+  const [grouped, due, notDue, lockedNow, list] = await Promise.all([
+    prisma.listLead.groupBy({ by: ["status"], where: { listId }, _count: { _all: true } }),
+    prisma.listLead.count({ where: { listId, status: { in: ["pending", "callback"] }, OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] } }),
+    prisma.listLead.count({ where: { listId, status: { in: ["pending", "callback"] }, nextAttemptAt: { gt: now } } }),
+    prisma.listLead.count({ where: { listId, status: "locked", lockExpiresAt: { gt: now } } }),
+    prisma.dialList.findUnique({ where: { id: listId }, select: { businessId: true, dialWindowJson: true, isPaused: true, archivedAt: true, isActive: true } }),
+  ]);
   const byStatus: Record<string, number> = {};
   for (const g of grouped) byStatus[g.status] = g._count._all;
-  const due = await prisma.listLead.count({
-    where: { listId, status: { in: ["pending", "callback"] }, OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: new Date() } }] },
+  const window = list ? await listDialWindow(list.businessId, listId) : null;
+  const inWindow = window ? isWithinDialWindow(window, now) : true;
+  const unavailable = {
+    notDueYet: notDue,
+    inProgress: lockedNow + (byStatus.in_call ?? 0),
+    exhausted: byStatus.exhausted ?? 0,
+    completed: byStatus.completed ?? 0,
+    dnc: byStatus.dnc ?? 0,
+    removed: byStatus.removed ?? 0,
+    outsideDialWindow: !inWindow,
+    listPaused: Boolean(list?.isPaused),
+    listInactive: Boolean(list && (!list.isActive || list.archivedAt)),
+  };
+  return { byStatus, dueNow: inWindow && !unavailable.listPaused && !unavailable.listInactive ? due : 0, dueIgnoringWindow: due, unavailable, total: Object.values(byStatus).reduce((a, b) => a + b, 0) };
+}
+
+/** Manager: move a held/pending lead to another agent (sets preference, releases any lock, audited). */
+export async function transferLead(businessId: string, actorId: string, leadId: string, toUserId: string | null, note?: string) {
+  const lead = await prisma.listLead.findFirst({ where: { id: leadId, businessId } });
+  if (!lead) throw new ApiError("ליד לא נמצא", 404, "not_found");
+  if (lead.status === "in_call") throw new ApiError("לא ניתן להעביר ליד בזמן שיחה", 409, "call_active");
+  if (toUserId) {
+    const u = await prisma.user.findFirst({ where: { id: toUserId, businessId, isActive: true } });
+    if (!u) throw new ApiError("נציג יעד לא נמצא", 404, "not_found");
+  }
+  const back = lead.status === "locked" ? (lead.lastOutcome === "callback" && lead.nextAttemptAt ? "callback" : "pending") : lead.status;
+  const updated = await prisma.listLead.update({
+    where: { id: leadId },
+    data: { preferredUserId: toUserId, status: back, lockedByUserId: null, lockToken: null, lockExpiresAt: null },
   });
-  return { byStatus, dueNow: due, total: Object.values(byStatus).reduce((a, b) => a + b, 0) };
+  await prisma.task.updateMany({ where: { leadId, status: "open" }, data: toUserId ? { userId: toUserId } : {} });
+  await audit(businessId, actorId, "lead", leadId, "lead.transferred", { from: lead.lockedByUserId ?? lead.preferredUserId, to: toUserId, note });
+  return updated;
 }

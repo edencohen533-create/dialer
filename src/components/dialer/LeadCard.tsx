@@ -131,6 +131,14 @@ export function LeadCard({
                 </span>
               )}
             </div>
+            {lead?.claimReason && (
+              <p className="mt-1 text-xs text-[#aab3ff]" title={lead.claimScore != null ? `ציון תעדוף ${lead.claimScore}` : undefined}>
+                למה עכשיו: {lead.claimReason}
+              </p>
+            )}
+            {(contact.tags?.length ?? 0) > 0 && (
+              <div className="mt-1 flex flex-wrap gap-1">{contact.tags!.map((t) => <Badge key={t} tone="neutral">{t}</Badge>)}</div>
+            )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {canEdit && !editing && (

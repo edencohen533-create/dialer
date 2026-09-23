@@ -146,10 +146,9 @@ async function main() {
     const after = await db.call.count({ where: { userId: a3.id } });
     return { pass: rs.every((r) => r.status === 400) && before === after, actual: rs.map((r) => `${r.status}:${r.code}`).join(" "), evidence: `calls ${before}→${after}` };
   });
-  await t("M5", "חיוג ידני", "מספר בינלאומי (ארה״ב)", "מתקבל ומנורמל ל-E.164", async () => {
-    const r = await B3.post("/api/dialer/call", { idempotencyKey: key(), mode: "manual", phone: "+1 415 555 2671" });
-    await endCall(B3, r.data?.id);
-    return { pass: r.status === 200 && r.data.toE164 === "+14155552671", actual: `${r.status} ${r.data?.toE164 ?? r.error}` };
+  await t("M5", "חיוג ידני", "מספר בינלאומי (ארה״ב) עם מדיניות ברירת מחדל IL בלבד", "מנורמל ל-E.164 אך נדחה 403 country_not_allowed (ראה N4 להתרה)", async () => {
+    const r = await B3.post("/api/dialer/call", { idempotencyKey: key(), mode: "manual", phone: "+1 202 555 0199" });
+    return { pass: r.status === 403 && r.code === "country_not_allowed" && r.json?.details?.country === "US", actual: `${r.status} ${r.code} (${r.json?.details?.country})` };
   });
   await t("M6", "חיוג ידני", "לחיצה כפולה מהירה (שתי בקשות במקביל, מפתחות שונים)", "נוצרת שיחה אחת בלבד", async () => {
     const before = await db.call.count({ where: { userId: a3.id } });
@@ -189,6 +188,7 @@ async function main() {
     return { pass: r.status === 200 && r.data.some((x: any) => x.toE164 === "+972521000005"), actual: `${r.data?.length} רשומות, כולל 0521000005=${r.data?.some((x: any) => x.toE164 === "+972521000005")}` };
   });
   await t("M12", "חיוג ידני", "מספר חסום (DNC) – ידני, מכרטיס ומליד", "403 dnc_blocked בכל המסלולים", async () => {
+    await MB.post("/api/contacts", { fullName: "US contact", phone: "+14155552671" }).catch(() => undefined);
     await B3.post("/api/dnc", { phone: "+14155552671", reason: "qa" });
     const c = await db.contact.findFirst({ where: { businessId: bizB, phoneE164: "+14155552671" } });
     const r1 = await B3.post("/api/dialer/call", { idempotencyKey: key(), mode: "manual", phone: "+14155552671" });
@@ -756,6 +756,314 @@ async function main() {
   });
   blocked("H5", "Webhooks", "timeout בבקשת חיוג לספק → בדיקה אם נוצרה שיחה לפני ניסיון חוזר", "dialPendingSince → המתנה ל-webhook → retry עם אותו command_id", "דורש ספק אמיתי/פרוקסי רשת; הלוגיקה קיימת ב-reconcileCall אך לא הופעלה בבדיקה");
   blocked("A1", "אודיו", "אודיו דו-כיווני, השתקה בפועל, DTMF ליעד IVR, החלפת אוזניות באמצע שיחה", "אודיו נשמע בשני הצדדים", "אין חשבון Telnyx ומספר בדיקה מאושר");
+
+
+  // ═══ New capabilities (gap-completion pass) ═══════════════════════════
+  await Promise.all([cleanupAgent(B3), cleanupAgent(B4)]);
+  const resetB = () => db.listLead.updateMany({ where: { listId: ids.listId }, data: { status: "pending", nextAttemptAt: null, attempts: 0, lockedByUserId: null, lockToken: null, lockExpiresAt: null, preferredUserId: null, priority: 0, claimReason: null } });
+  const setB = (settings: Record<string, unknown>) => ADB.patch("/api/settings", { settings });
+
+  await t("N1", "תעדוף", "סדר הגשה לפי ציון שקוף + הסבר לנציג", "חזרה שהגיע מועדה לפני ליד של הנציג לפני ליד רגיל; claimReason מוסבר", async () => {
+    await resetB();
+    const leads = await db.listLead.findMany({ where: { listId: ids.listId }, include: { contact: true }, orderBy: { createdAt: "asc" } });
+    const cb = leads[0], own = leads[1], plain = leads[2];
+    await db.listLead.updateMany({ where: { listId: ids.listId, NOT: { id: { in: [cb.id, own.id, plain.id] } } }, data: { status: "removed" } });
+    await db.listLead.update({ where: { id: cb.id }, data: { status: "callback", lastOutcome: "callback", nextAttemptAt: new Date(Date.now() - 5 * 60_000), preferredUserId: a3.id } });
+    await db.contact.update({ where: { id: own.contactId }, data: { ownerUserId: a3.id } });
+    await db.contact.update({ where: { id: plain.contactId }, data: { ownerUserId: a4.id } });
+    await db.contact.update({ where: { id: cb.contactId }, data: { ownerUserId: null } });
+    const s = await B3.post("/api/dialer/session", { mode: "preview", listId: ids.listId, browserSessionId: T.sess3 });
+    const got: string[] = []; const reasons: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const l = await B3.post("/api/dialer/next-lead", { sessionId: s.data.id, browserSessionId: T.sess3 });
+      if (!l.data) break;
+      got.push(l.data.id); reasons.push(l.data.claimReason);
+      await db.listLead.update({ where: { id: l.data.id }, data: { status: "removed", lockedByUserId: null, lockToken: null } }); // take it out so the next pull differs
+    }
+    await B3.del("/api/dialer/session", { sessionId: s.data.id, browserSessionId: T.sess3 });
+    await db.listLead.updateMany({ where: { listId: ids.listId }, data: { status: "pending", preferredUserId: null, nextAttemptAt: null } });
+    await db.contact.updateMany({ where: { businessId: bizB }, data: { ownerUserId: a3.id } });
+    const order = got.map((id) => (id === cb.id ? "callback" : id === own.id ? "owner" : "plain")).join(">");
+    return { pass: order === "callback>owner>plain" && reasons[0]?.includes("חזרה") && reasons[1]?.includes("שלך"), actual: `סדר=${order}; הסברים: ${reasons.join(" | ")}` };
+  });
+
+  await t("N2", "בטיחות", "עצירת חיוגים ברמת העסק (kill switch)", "משיכת ליד וחיוג ידני נדחים ב-409 dialing_paused; אחרי חידוש עובד", async () => {
+    await MB.post("/api/manager/pause", { scope: "business", paused: true });
+    const s = await B3.post("/api/dialer/session", { mode: "power", listId: ids.listId, browserSessionId: T.sess3, countdownSeconds: 0 });
+    const r1 = await B3.post("/api/dialer/next-lead", { sessionId: s.data.id, browserSessionId: T.sess3 });
+    const r2 = await B3.post("/api/dialer/call", { idempotencyKey: key(), mode: "manual", phone: "0521000010" });
+    const dash = await MB.get("/api/manager/dashboard");
+    await MB.post("/api/manager/pause", { scope: "business", paused: false });
+    const r3 = await B3.post("/api/dialer/call", { idempotencyKey: key(), mode: "manual", phone: "0521000010" });
+    await endCall(B3, r3.data?.id);
+    await B3.del("/api/dialer/session", { sessionId: s.data.id, browserSessionId: T.sess3 });
+    const hist = await db.auditLog.count({ where: { businessId: bizB, action: "dialing.paused" } });
+    return { pass: r1.code === "dialing_paused" && r2.code === "dialing_paused" && dash.data.dialingPaused === true && r3.status === 200 && hist >= 1, actual: `next-lead ${r1.code}, dial ${r2.code}, dashboard paused=${dash.data.dialingPaused}, after resume ${r3.status}, audit=${hist}` };
+  });
+
+  await t("N3", "בטיחות", "השהיית רשימה בודדת", "409 list_paused בהתחלת סשן; דשבורד מציג מושהית", async () => {
+    await MB.post("/api/manager/pause", { scope: "list", listId: ids.listId, paused: true });
+    const r = await B3.post("/api/dialer/session", { mode: "power", listId: ids.listId, browserSessionId: T.sess3, countdownSeconds: 0 });
+    const dash = await MB.get("/api/manager/dashboard");
+    const q = dash.data.queues.find((x: any) => x.id === ids.listId);
+    await MB.post("/api/manager/pause", { scope: "list", listId: ids.listId, paused: false });
+    return { pass: r.code === "list_paused" && q?.isPaused === true && q?.stats.dueNow === 0, actual: `${r.status} ${r.code}; queue paused=${q?.isPaused} dueNow=${q?.stats.dueNow}` };
+  });
+
+  await t("N4", "בטיחות", "הגבלת מדינות יעד", "IL בלבד → +1 נדחה 403; אחרי הוספת US → מותר", async () => {
+    await setB({ allowedCountries: ["IL"] });
+    const r1 = await B3.post("/api/dialer/call", { idempotencyKey: key(), mode: "manual", phone: "+1 202 555 0143" });
+    await setB({ allowedCountries: ["IL", "US"] });
+    const r2 = await B3.post("/api/dialer/call", { idempotencyKey: key(), mode: "manual", phone: "+1 202 555 0143" });
+    await endCall(B3, r2.data?.id);
+    await setB({ allowedCountries: ["IL"] });
+    return { pass: r1.code === "country_not_allowed" && r2.status === 200, actual: `IL בלבד: ${r1.status}/${r1.code} (${r1.json?.details?.country}); עם US: ${r2.status}` };
+  });
+
+  await t("N5", "בטיחות", "הגבלת קצב חיוג לנציג", "maxDialsPerMinute=2 → החיוג השלישי 429", async () => {
+    await setB({ maxDialsPerMinute: 2 });
+    await cleanupAgent(B4);
+    const codes: string[] = [];
+    for (const ph of ["0521000010", "0521000011", "0521000012"]) {
+      const r = await B4.post("/api/dialer/call", { idempotencyKey: key(), mode: "manual", phone: ph });
+      codes.push(`${r.status}${r.code ? "/" + r.code : ""}`);
+      if (r.status === 200) await endCall(B4, r.data.id);
+    }
+    await setB({ maxDialsPerMinute: 0 });
+    return { pass: codes[0].startsWith("200") && codes[1].startsWith("200") && codes[2] === "429/rate_limited", actual: codes.join(", ") };
+  });
+
+  await t("N6", "חלוקת עבודה", "אותו מספר בשיחה חיה אצל נציג אחר (כרטיסים כפולים)", "409 number_in_call", async () => {
+    const c3 = await B3.post("/api/dialer/call", { idempotencyKey: key(), mode: "manual", phone: "0521000005" });
+    await waitStatus(B3, c3.data.id, ["answered"]);
+    const c4 = await B4.post("/api/dialer/call", { idempotencyKey: key(), mode: "manual", phone: "052-100-0005" });
+    await endCall(B3, c3.data.id);
+    return { pass: c4.status === 409 && c4.code === "number_in_call", actual: `${c4.status} ${c4.code}` };
+  });
+
+  await t("N7", "תותח שיחות", "כשל טכני (leg הנציג נכשל לפני צלצול)", "הליד חוזר לתור אחרי X דק׳, הניסיון לא נספר, אין דרישת תיעוד, נרשמה אוטומציה", async () => {
+    await resetB();
+    const s = await B3.post("/api/dialer/session", { mode: "power", listId: ids.listId, browserSessionId: T.sess3, countdownSeconds: 0 });
+    const l = await B3.post("/api/dialer/next-lead", { sessionId: s.data.id, browserSessionId: T.sess3 });
+    const c = await B3.post("/api/dialer/call", { idempotencyKey: key(), mode: "power", sessionId: s.data.id, browserSessionId: T.sess3, leadId: l.data.id, lockToken: l.data.lockToken });
+    // provider says the agent leg failed before anything rang (no poll happened yet, so the mock did not advance)
+    const body = hook("evt-n7-" + key(), "call.hangup", c.data.id, "agent", c.data.agentLegId ?? "mock-agent-" + c.data.id, { hangup_cause: "call_rejected", hangup_source: "callee" });
+    await anon.req("POST", "/api/webhooks/telnyx", body, sign(body));
+    const call = await db.call.findUnique({ where: { id: c.data.id } });
+    const lead = await db.listLead.findUnique({ where: { id: l.data.id } });
+    const st = await B3.get(`/api/dialer/state?browserSessionId=${T.sess3}`);
+    const auto = await db.auditLog.count({ where: { businessId: bizB, action: "automation.technical_failure_requeued", entityId: c.data.id } });
+    await B3.del("/api/dialer/session", { sessionId: s.data.id, browserSessionId: T.sess3 });
+    const mins = lead?.nextAttemptAt ? Math.round((lead.nextAttemptAt.getTime() - Date.now()) / 60000) : null;
+    return { pass: call?.status === "failed" && Boolean(call.outcomeSavedAt) && call.outcome === null && lead?.status === "pending" && lead.attempts === 0 && mins === 10 && !st.data.wrapUpCall && auto === 1, actual: `call=${call?.status} autoSaved=${Boolean(call?.outcomeSavedAt)} lead=${lead?.status} attempts=${lead?.attempts} next=+${mins}m wrapUpRequired=${Boolean(st.data.wrapUpCall)} audit=${auto}` };
+  });
+
+  await t("N8", "חלוקת עבודה", "העברת ליד לנציג אחר ע״י מנהל", "הנעילה משוחררת, preferredUserId=יעד, audit; הנציג היעד מקבל אותו ראשון", async () => {
+    await resetB();
+    const s3 = await B3.post("/api/dialer/session", { mode: "preview", listId: ids.listId, browserSessionId: T.sess3 });
+    const l = await B3.post("/api/dialer/next-lead", { sessionId: s3.data.id, browserSessionId: T.sess3 });
+    const r = await MB.post(`/api/leads/${l.data.id}/transfer`, { toUserId: a4.id, note: "qa" });
+    const lead = await db.listLead.findUnique({ where: { id: l.data.id } });
+    const s4 = await B4.post("/api/dialer/session", { mode: "preview", listId: ids.listId, browserSessionId: T.sess4 });
+    const l4 = await B4.post("/api/dialer/next-lead", { sessionId: s4.data.id, browserSessionId: T.sess4 });
+    const audit = await db.auditLog.count({ where: { businessId: bizB, action: "lead.transferred", entityId: l.data.id } });
+    await B4.del("/api/dialer/session", { sessionId: s4.data.id, browserSessionId: T.sess4 });
+    await B3.del("/api/dialer/session", { sessionId: s3.data.id, browserSessionId: T.sess3 });
+    return { pass: r.status === 200 && lead?.lockedByUserId === null && lead.preferredUserId === a4.id && l4.data?.id === l.data.id && audit === 1, actual: `${r.status}; locked=${lead?.lockedByUserId} preferred=${lead?.preferredUserId === a4.id}; agent4 got it=${l4.data?.id === l.data.id}; audit=${audit}` };
+  });
+
+  await t("N9", "רשימות", "שכפול, ארכוב ורענון רשימה דינמית", "העותק מכיל את הלידים; ארכיון → list_inactive; רענון מוסיף איש קשר חדש שעונה לסינון", async () => {
+    await resetB();
+    const dup = await MB.post(`/api/lists/${ids.listId}/duplicate`, { withLeads: true });
+    const dupCount = await db.listLead.count({ where: { listId: dup.data.id } });
+    const arch = await MB.patch(`/api/lists/${dup.data.id}`, { archived: true });
+    const sess = await B4.post("/api/dialer/session", { mode: "power", listId: dup.data.id, browserSessionId: T.sess4 });
+    const tag = "qa-dyn-" + key().slice(0, 6);
+    const dyn = await MB.post("/api/lists", { name: "QA-" + tag, isDynamic: true, filter: { source: tag } });
+    await MB.post("/api/contacts", { fullName: "דינמי חדש", phone: "052-10" + String(Math.floor(Math.random() * 90000) + 10000), source: tag });
+    const ref = await MB.post(`/api/lists/${dyn.data.id}/refresh`);
+    const frozen = await MB.post(`/api/lists/${ids.listId}/refresh`);
+    const auto = await db.auditLog.count({ where: { businessId: bizB, action: "automation.list_refreshed", entityId: dyn.data.id } });
+    return { pass: dup.status === 201 && dupCount === dup.data.copied && dupCount >= 7 && arch.status === 200 && sess.code === "list_inactive" && dyn.data.added === 0 && ref.data.added === 1 && frozen.code === "list_frozen" && auto === 1, actual: `copied=${dup.data?.copied}/${dupCount}; archived→session ${sess.code}; dynamic refresh added=${ref.data?.added}; frozen refresh=${frozen.status}/${frozen.data?.added ?? frozen.code}` };
+  });
+
+  await t("N10", "אוטומציות", "מכירה סוגרת את הליד בכל הרשימות האחרות ומבטלת משימות פתוחות", "ליד ברשימה השנייה → completed; יומן אוטומציה", async () => {
+    await resetB();
+    const c5 = await db.contact.findFirst({ where: { businessId: bizB, phoneE164: "+972521000005" } });
+    const other = await MB.post("/api/lists", { name: "QA-other-" + key().slice(0, 6), contactIds: [c5!.id] });
+    const otherLead = await db.listLead.findFirst({ where: { listId: other.data.id, contactId: c5!.id } });
+    const c = await B3.post("/api/dialer/call", { idempotencyKey: key(), mode: "manual", contactId: c5!.id });
+    await waitStatus(B3, c.data.id, ["answered"]);
+    await B3.post(`/api/dialer/call/${c.data.id}/hangup`);
+    await waitEnd(B3, c.data.id);
+    await B3.post(`/api/dialer/call/${c.data.id}/outcome`, { outcome: "sale" });
+    const after = await db.listLead.findUnique({ where: { id: otherLead!.id } });
+    const auto = await db.auditLog.findFirst({ where: { businessId: bizB, action: "automation.sale_removed_from_lists", entityId: c5!.id }, orderBy: { createdAt: "desc" } });
+    return { pass: after?.status === "completed" && Boolean(auto), actual: `other list lead=${after?.status}; automation log=${Boolean(auto)} (${JSON.stringify(auto?.payload)})` };
+  });
+
+  await t("N11", "שיחות נכנסות", "לקוח מתקשר: זיהוי, ניתוב לבעלים, קבלה, ניתוק, היסטוריה", "נותב ל-agent3 (בעלים), ringing; קבל → answered; נתק → ended; direction=inbound בכרטיס", async () => {
+    await resetB();
+    await cleanupAgent(B3); await cleanupAgent(B4);
+    const c5 = await db.contact.findFirst({ where: { businessId: bizB, phoneE164: "+972521000005" } });
+    await db.contact.update({ where: { id: c5!.id }, data: { ownerUserId: a3.id } });
+    await B3.post("/api/dialer/session", { mode: "manual", browserSessionId: T.sess3 }); // agent3 available
+    const sim = await MB.post("/api/dev/simulate-inbound", { from: "0521000005" });
+    const routedTo3 = sim.data?.userId === a3.id && sim.data.routingNote === "routed_to_owner";
+    const st = await B3.get(`/api/dialer/state?browserSessionId=${T.sess3}`);
+    const ringing = st.data.activeCall?.direction === "inbound" && !st.data.activeCall.answeredAt;
+    const acc = await B3.post(`/api/dialer/call/${sim.data.id}/accept`);
+    const answered = await waitStatus(B3, sim.data.id, ["answered"]);
+    await sleep(1500);
+    await B3.post(`/api/dialer/call/${sim.data.id}/hangup`);
+    const ended = await waitEnd(B3, sim.data.id);
+    const st2 = await B3.get(`/api/dialer/state?browserSessionId=${T.sess3}`);
+    await B3.post(`/api/dialer/call/${sim.data.id}/outcome`, { outcome: "answered_interested", note: "inbound qa" });
+    const hist = await B3.get(`/api/contacts/${c5!.id}`);
+    const inHist = hist.data.calls.find((x: any) => x.id === sim.data.id);
+    await cleanupAgent(B3);
+    return { pass: routedTo3 && ringing && acc.status === 200 && answered?.status === "answered" && Boolean(ended?.endedAt) && ended.telephonyResult === "answered" && Boolean(st2.data.wrapUpCall) && Boolean(inHist), actual: `routed=${sim.data?.routingNote}/${routedTo3}; ringing=${ringing}; accept ${acc.status}; ${answered?.status}; ended=${ended?.telephonyResult} talk=${ended?.talkSeconds}s; wrap-up=${Boolean(st2.data.wrapUpCall)}; בהיסטוריה=${Boolean(inHist)}` };
+  });
+
+  await t("N12", "שיחות נכנסות", "בעלים עסוק → נציג זמין אחר; אף אחד זמין → לא נענה + משימת חזרה; דחייה ע״י נציג", "ניתוב ל-agent4; missed עם task; reject → ended + routingNote", async () => {
+    await cleanupAgent(B3); await cleanupAgent(B4);
+    const c4c = await db.contact.findFirst({ where: { businessId: bizB, phoneE164: "+972521000004" } });
+    await db.contact.update({ where: { id: c4c!.id }, data: { ownerUserId: a3.id } });
+    await B3.post("/api/dialer/session", { mode: "manual", browserSessionId: T.sess3 });
+    await B4.post("/api/dialer/session", { mode: "manual", browserSessionId: T.sess4 });
+    const busy = await B3.post("/api/dialer/call", { idempotencyKey: key(), mode: "manual", phone: "0521000005" }); // agent3 busy
+    await waitStatus(B3, busy.data.id, ["answered"]);
+    const sim1 = await MB.post("/api/dev/simulate-inbound", { from: "0521000004" });
+    const toAgent4 = sim1.data?.userId === a4.id && sim1.data.routingNote === "routed_to_available_agent";
+    const rej = await B4.post(`/api/dialer/call/${sim1.data.id}/reject`);
+    const rejCall = await waitEnd(B4, sim1.data.id);
+    const rejDb = await db.call.findUnique({ where: { id: sim1.data.id } });
+    await B4.post(`/api/dialer/call/${sim1.data.id}/outcome`, { outcome: "no_answer" }).catch(() => undefined);
+    await endCall(B3, busy.data.id);
+    await cleanupAgent(B3); await cleanupAgent(B4); // nobody available now
+    const tasksBefore = await db.task.count({ where: { businessId: bizB, contactId: c4c!.id, status: "open" } });
+    const sim2 = await MB.post("/api/dev/simulate-inbound", { from: "0521000004" });
+    const tasksAfter = await db.task.count({ where: { businessId: bizB, contactId: c4c!.id, status: "open" } });
+    const missedAudit = await db.auditLog.count({ where: { businessId: bizB, action: "inbound.missed", entityId: sim2.data?.id ?? "x" } });
+    return { pass: toAgent4 && rej.status === 200 && Boolean(rejCall?.endedAt) && rejDb?.routingNote === "rejected_by_agent" && sim2.data?.routingNote === "no_agent_available" && sim2.data.telephonyResult === "no_answer" && tasksAfter === tasksBefore + 1 && missedAudit === 1, actual: `busy owner → ${sim1.data?.routingNote} (agent4=${toAgent4}); reject ${rej.status} ended=${Boolean(rejCall?.endedAt)} note=${rejDb?.routingNote}; nobody → ${sim2.data?.routingNote}/${sim2.data?.telephonyResult}, task +${tasksAfter - tasksBefore}, audit=${missedAudit}` };
+  });
+
+  await t("N13", "תותח שיחות", "סיכום סשן אמיתי", "dials/connected/outcomes תואמים ל-DB", async () => {
+    await resetB();
+    const s = await B3.post("/api/dialer/session", { mode: "power", listId: ids.listId, browserSessionId: T.sess3, countdownSeconds: 0 });
+    for (let i = 0; i < 2; i++) {
+      const l = await B3.post("/api/dialer/next-lead", { sessionId: s.data.id, browserSessionId: T.sess3 });
+      const c = await B3.post("/api/dialer/call", { idempotencyKey: key(), mode: "power", sessionId: s.data.id, browserSessionId: T.sess3, leadId: l.data.id, lockToken: l.data.lockToken });
+      await endCall(B3, c.data.id);
+    }
+    const sum = await B3.get(`/api/dialer/session/summary?sessionId=${s.data.id}`);
+    const calls = await db.call.findMany({ where: { sessionId: s.data.id } });
+    await B3.del("/api/dialer/session", { sessionId: s.data.id, browserSessionId: T.sess3 });
+    const outcomesTotal = sum.data.outcomes.reduce((a: number, o: any) => a + o.count, 0);
+    return { pass: sum.data.dials === 2 && sum.data.dials === calls.length && sum.data.connected === calls.filter((c) => c.answeredAt).length && outcomesTotal === 2 && sum.data.queue && typeof sum.data.queue.dueNow === "number", actual: `dials=${sum.data.dials} connected=${sum.data.connected} outcomes=${outcomesTotal} queue.total=${sum.data.queue?.total}` };
+  });
+
+  await t("N14", "מנהל", "היסטוריית שינויי הגדרות", "PATCH settings יוצר רשומת audit עם diff; מוצג ב-/api/settings/history", async () => {
+    const before = await db.auditLog.count({ where: { businessId: bizB, action: "settings.updated" } });
+    await setB({ wrapUpSeconds: 45 });
+    await setB({ wrapUpSeconds: 30 });
+    const after = await db.auditLog.count({ where: { businessId: bizB, action: "settings.updated" } });
+    const h = await MB.get("/api/settings/history");
+    const last = h.data.find((x: any) => x.action === "settings.updated");
+    return { pass: after === before + 2 && Boolean(last?.payload?.changed?.wrapUpSeconds), actual: `audit +${after - before}; last diff=${JSON.stringify(last?.payload?.changed?.wrapUpSeconds)}` };
+  });
+
+  await t("N15", "רשימות", "ייבוא עם דוח שגיאות לפי שורה", "שורות לא תקינות מדווחות עם מספר שורה וסיבה", async () => {
+    const r = await MB.post("/api/contacts/import", { rows: [{ fullName: "תקין", phone: "0521000088" }, { fullName: "לא תקין", phone: "12" }, { fullName: "לא תקין 2", phone: "abc" }], source: "qa-import" });
+    return { pass: r.data.created + r.data.updated === 1 && r.data.invalid === 2 && r.data.errors.length === 2 && r.data.errors[0].row === 2, actual: JSON.stringify({ created: r.data.created, updated: r.data.updated, invalid: r.data.invalid, errors: r.data.errors }) };
+  });
+
+  await t("N16", "מדדים", "מדדים מורחבים ודיוק טווח (חציית חצות, ללא ספירה כפולה)", "uniqueContacts/avgRing/avgWrap/callbackAdherence מוגדרים; שיחה מאתמול 23:59 לא נספרת ב'היום'", async () => {
+    const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1); yesterday.setHours(23, 59, 0, 0);
+    const old = await db.call.create({ data: { businessId: bizB, userId: a3.id, mode: "manual", provider: "mock", idempotencyKey: "qa-midnight-" + key(), toE164: "+972521000099", fromE164: "+97239876543", status: "ended", telephonyResult: "answered", createdAt: yesterday, ringingAt: yesterday, answeredAt: new Date(yesterday.getTime() + 5000), endedAt: new Date(yesterday.getTime() + 65000), talkSeconds: 60, outcome: "sale", outcomeSavedAt: new Date(yesterday.getTime() + 90000) } });
+    const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+    const today = await MB.get(`/api/manager/dashboard?from=${startOfToday.toISOString()}`);
+    const both = await MB.get(`/api/manager/dashboard?from=${new Date(yesterday.getTime() - 3600_000).toISOString()}`);
+    const expectToday = await db.call.count({ where: { businessId: bizB, createdAt: { gte: startOfToday } } });
+    const connectedToday = await db.call.findMany({ where: { businessId: bizB, createdAt: { gte: startOfToday }, answeredAt: { not: null } }, select: { contactId: true } });
+    const uniq = new Set(connectedToday.map((c) => c.contactId).filter(Boolean)).size;
+    await db.call.delete({ where: { id: old.id } });
+    const tt = today.data.totals;
+    return { pass: tt.dials === expectToday && both.data.totals.dials === expectToday + 1 && both.data.totals.sales === tt.sales + 1 && tt.uniqueContacts === uniq && tt.avgRingSeconds > 0 && typeof tt.callbackAdherence?.due === "number", actual: `today dials=${tt.dials}/${expectToday}, with yesterday=${both.data.totals.dials}; unique=${tt.uniqueContacts}/${uniq}; avgRing=${tt.avgRingSeconds}s avgWrap=${tt.avgWrapUpSeconds}s gap=${tt.avgGapSeconds}s adherence=${JSON.stringify(tt.callbackAdherence)}` };
+  });
+
+  await t("N17", "הקלטות", "מדיניות שמירה – עבודת רקע מוחקת הקלטות ישנות", "call ישן עם הקלטה → recordingStatus=none אחרי הריצה; חדש נשאר", async () => {
+    await setB({ recordingRetentionDays: 1 });
+    const oldC = await db.call.create({ data: { businessId: bizB, userId: a3.id, mode: "manual", provider: "mock", idempotencyKey: "qa-ret-" + key(), toE164: "+972521000098", fromE164: "+97239876543", status: "ended", telephonyResult: "answered", createdAt: new Date(Date.now() - 3 * 86400_000), endedAt: new Date(Date.now() - 3 * 86400_000), recordingStatus: "saved", recordingId: "mock-rec-old", outcomeSavedAt: new Date() } });
+    const newC = await db.call.create({ data: { businessId: bizB, userId: a3.id, mode: "manual", provider: "mock", idempotencyKey: "qa-ret2-" + key(), toE164: "+972521000098", fromE164: "+97239876543", status: "ended", telephonyResult: "answered", endedAt: new Date(), recordingStatus: "saved", recordingId: "mock-rec-new", outcomeSavedAt: new Date() } });
+    const job = await anon.req("GET", "/api/jobs/retention");
+    const o = await db.call.findUnique({ where: { id: oldC.id } });
+    const n = await db.call.findUnique({ where: { id: newC.id } });
+    await setB({ recordingRetentionDays: 0 });
+    await db.call.deleteMany({ where: { id: { in: [oldC.id, newC.id] } } });
+    return { pass: job.status === 200 && o?.recordingStatus === "none" && n?.recordingStatus === "saved", actual: `job ${job.status}; old=${o?.recordingStatus} new=${n?.recordingStatus}` };
+  });
+
+  await t("N18", "עומס", "4 נציגים בשני עסקים מריצים תותח שיחות במקביל", "אין ליד שנמסר פעמיים, אין שגיאות, מדידת latency", async () => {
+    await resetB();
+    await db.listLead.updateMany({ where: { businessId: bizA }, data: { status: "pending", nextAttemptAt: null, attempts: 0, lockedByUserId: null, lockToken: null, lockExpiresAt: null, preferredUserId: null } });
+    const listA = (await db.dialList.findFirst({ where: { businessId: bizA, name: { startsWith: "לידים חמים" } } }))!.id;
+    const agents: Array<[Client, string, string]> = [[A1, listA, "tabA1-" + key()], [A2, listA, "tabA2-" + key()], [B3, ids.listId, T.sess3], [B4, ids.listId, T.sess4]];
+    await Promise.all(agents.map(([c]) => cleanupAgent(c)));
+    const claimed: string[] = []; const lat: number[] = []; const errors: string[] = [];
+    await Promise.all(agents.map(async ([c, listId, tab]) => {
+      const s = await c.post("/api/dialer/session", { mode: "power", listId, browserSessionId: tab, countdownSeconds: 0 });
+      for (let i = 0; i < 3; i++) {
+        const t0 = Date.now();
+        const l = await c.post("/api/dialer/next-lead", { sessionId: s.data.id, browserSessionId: tab });
+        lat.push(Date.now() - t0);
+        if (l.status !== 200) { errors.push(`${c.name}: next-lead ${l.status} ${l.code}`); break; }
+        if (!l.data) break;
+        claimed.push(l.data.id);
+        const d = await c.post("/api/dialer/call", { idempotencyKey: key(), mode: "power", sessionId: s.data.id, browserSessionId: tab, leadId: l.data.id, lockToken: l.data.lockToken });
+        if (d.status !== 200) { errors.push(`${c.name}: dial ${d.status} ${d.code}`); break; }
+        await endCall(c, d.data.id, "answered_not_interested");
+      }
+      await c.del("/api/dialer/session", { sessionId: s.data.id, browserSessionId: tab });
+    }));
+    const dupes = claimed.length - new Set(claimed).size;
+    lat.sort((a, b) => a - b);
+    const p = (q: number) => lat[Math.min(lat.length - 1, Math.floor(lat.length * q))];
+    return { pass: dupes === 0 && errors.length === 0 && claimed.length >= 8, actual: `לידים שנמשכו=${claimed.length} כפולים=${dupes} שגיאות=${errors.length ? errors.join("; ") : 0}; next-lead latency p50=${p(0.5)}ms p95=${p(0.95)}ms (Neon מרחוק)` };
+  });
+
+  await t("N19", "ביצועים", "רשימה של 10,000 לידים – הקצאה ועימוד", "next-lead < 3s p95, עמוד לידים < 3s, ללא כפילויות", async () => {
+    const perf = await db.dialList.create({ data: { businessId: bizB, name: "QA-perf-10k" } });
+    const batch = 1000; let contactIds: string[] = [];
+    for (let b = 0; b < 10; b++) {
+      const rows = Array.from({ length: batch }, (_, i) => { const n = b * batch + i; return { businessId: bizB, fullName: `perf ${n}`, phoneE164: `+97255${String(n).padStart(7, "0")}`, phoneRaw: `055${String(n).padStart(7, "0")}`, source: "perf" }; });
+      await db.contact.createMany({ data: rows, skipDuplicates: true });
+    }
+    const cs = await db.contact.findMany({ where: { businessId: bizB, source: "perf" }, select: { id: true } });
+    contactIds = cs.map((c) => c.id);
+    for (let i = 0; i < contactIds.length; i += 2000) await db.listLead.createMany({ data: contactIds.slice(i, i + 2000).map((cid) => ({ businessId: bizB, listId: perf.id, contactId: cid })), skipDuplicates: true });
+    const total = await db.listLead.count({ where: { listId: perf.id } });
+    const s = await B3.post("/api/dialer/session", { mode: "preview", listId: perf.id, browserSessionId: T.sess3 });
+    const lat: number[] = []; const got = new Set<string>();
+    for (let i = 0; i < 10; i++) {
+      const t0 = Date.now();
+      const l = await B3.post("/api/dialer/next-lead", { sessionId: s.data.id, browserSessionId: T.sess3 });
+      lat.push(Date.now() - t0);
+      if (l.data) { got.add(l.data.id); await B3.post("/api/dialer/skip", { leadId: l.data.id, lockToken: l.data.lockToken, reason: "perf" }); }
+    }
+    const t1 = Date.now(); const page = await MB.get(`/api/lists/${perf.id}/leads?limit=50&page=100`); const pageMs = Date.now() - t1;
+    const t2 = Date.now(); const stats = await MB.get(`/api/lists/${perf.id}`); const statsMs = Date.now() - t2;
+    await B3.del("/api/dialer/session", { sessionId: s.data.id, browserSessionId: T.sess3 });
+    await db.listLead.deleteMany({ where: { listId: perf.id } }); await db.dialList.delete({ where: { id: perf.id } }); await db.contact.deleteMany({ where: { businessId: bizB, source: "perf" } });
+    lat.sort((a, b) => a - b);
+    const p95 = lat[Math.floor(lat.length * 0.95)];
+    const r0 = Date.now(); await db.$queryRaw`SELECT 1`; const rtt = Date.now() - r0;
+    // next-lead = ~12 sequential DB round trips; from this laptop each is ~rtt. Threshold is relative to RTT.
+    return { pass: total === 10000 && got.size === 10 && p95 < Math.max(3000, rtt * 25) && pageMs < Math.max(3000, rtt * 12) && page.data.total === 10000, actual: `leads=${total}; DB RTT=${rtt}ms; next-lead p50=${lat[5]}ms p95=${p95}ms; עמוד 100 (50 שורות)=${pageMs}ms; סטטיסטיקה=${statsMs}ms (dueNow=${stats.data?.stats?.dueNow})` };
+  });
+  blocked("N20", "טלפוניה מתקדמת", "החזקה, העברה, ועידה, האזנה/לחישה", "פעולות זמינות רק אם ממומשות", "לא ממומש: Telnyx תומך דרך Conferences API; דורש החלטת מוצר ומימוש נפרד – לא מוצגים כפתורים");
+  blocked("N21", "AI ותמלול", "תמלול, סיכום, זיהוי התנגדויות", "הצעות בלבד עם מקור", "אין ספק תמלול מחובר – לא מיוצרים סיכומים מדומים");
+  blocked("N22", "WhatsApp", "הודעת המשך לפי כללי החיבור", "", "אין חיבור WhatsApp במערכת זו");
 
   // ── output ──────────────────────────────────────────────────────────
   const summary = { total: rows.length, passed: rows.filter((r) => r.status === "עבר").length, failed: rows.filter((r) => r.status === "נכשל").length, blocked: rows.filter((r) => r.status === "חסום לבדיקה").length, missing: rows.filter((r) => r.status === "חסר במימוש").length };

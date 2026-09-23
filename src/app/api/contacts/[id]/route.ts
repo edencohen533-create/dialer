@@ -41,6 +41,7 @@ const patchSchema = z.object({
   source: z.string().max(100).optional(),
   notes: z.string().max(4000).optional(),
   ownerUserId: z.string().nullable().optional(),
+  tags: z.array(z.string().min(1).max(40)).max(30).optional(),
 });
 
 export const PATCH = withAuth(async ({ req, user, params }) => {
@@ -61,6 +62,7 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
   if (b.source !== undefined) data.source = b.source || null;
   if (b.notes !== undefined) data.notes = b.notes || null;
   if (b.ownerUserId !== undefined && user.role !== "agent") data.ownerUserId = b.ownerUserId;
+  if (b.tags !== undefined) data.tags = [...new Set(b.tags.map((t) => t.trim()).filter(Boolean))];
   if (b.phone !== undefined) {
     const e164 = normalizePhone(b.phone);
     if (!e164) throw new ApiError("מספר טלפון לא תקין", 400, "invalid_phone");

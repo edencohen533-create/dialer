@@ -9,6 +9,7 @@ import { getTelephony } from "@/lib/telephony";
 import { TelephonyRequestTimeout } from "@/lib/telephony/types";
 import type { ProviderEvent } from "@/lib/telephony/types";
 import { getBusinessSettings } from "@/lib/settings";
+import { handleInboundInitiated } from "@/lib/dialer/inbound";
 
 const RANK: Record<CallStatus, number> = {
   created: 0,
@@ -77,8 +78,20 @@ export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessRe
     (ev.callId ? await prisma.call.findUnique({ where: { id: ev.callId } }) : null) ??
     (await prisma.call.findFirst({ where: { OR: [{ agentLegId: ev.legId }, { leadLegId: ev.legId }] } }));
   if (!call) {
-    await prisma.telephonyEvent.update({ where: { provider_providerEventId: { provider: ev.provider, providerEventId: ev.eventId } }, data: { processedAt: new Date() } });
-    return { duplicate: false, callId: null };
+    // A brand-new incoming leg with no client_state = a customer calling one of our numbers.
+    let routed: { id: string; businessId: string } | null = null;
+    if (ev.type === "leg.initiated" && ev.direction === "incoming" && !ev.callId) {
+      try {
+        routed = await handleInboundInitiated(ev);
+      } catch (err) {
+        console.error("[events] inbound routing failed", err);
+      }
+    }
+    await prisma.telephonyEvent.update({
+      where: { provider_providerEventId: { provider: ev.provider, providerEventId: ev.eventId } },
+      data: { processedAt: new Date(), callId: routed?.id ?? undefined, businessId: routed?.businessId ?? undefined },
+    });
+    return { duplicate: false, callId: routed?.id ?? null };
   }
   const leg: "agent" | "lead" | undefined = ev.leg ?? (call.agentLegId === ev.legId ? "agent" : call.leadLegId === ev.legId ? "lead" : undefined);
 
@@ -101,8 +114,13 @@ export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessRe
     if (leg === "agent") {
       if (ev.type === "leg.answered") {
         if (!c.agentAnsweredAt) data.agentAnsweredAt = now;
-        data.status = forward(c.status, "agent_connected");
-        if (!c.leadLegId && !c.hangupRequestedAt) action = "dial_lead";
+        if (c.direction === "inbound") {
+          if (!c.answeredAt) data.answeredAt = now;
+          data.status = forward(c.status, "answered");
+        } else {
+          data.status = forward(c.status, "agent_connected");
+          if (!c.leadLegId && !c.hangupRequestedAt) action = "dial_lead";
+        }
       } else if (ev.type === "leg.hangup") {
         if (c.leadLegId && !c.endedAt) {
           // Agent dropped (or hung up) – make sure the lead leg is torn down.
@@ -134,6 +152,11 @@ export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessRe
           break;
         case "leg.answered":
         case "leg.bridged":
+          if (c.direction === "inbound" && ev.type === "leg.answered") {
+            // We answered the customer leg ourselves in order to bridge; the agent is not on yet.
+            data.status = forward(c.status, "ringing");
+            break;
+          }
           if (!c.answeredAt) data.answeredAt = now;
           data.status = forward(c.status, "answered");
           if (c.recordingId && c.recordingStatus === "none") data.recordingStatus = "recording";
@@ -203,7 +226,7 @@ export async function dialLeadLeg(callId: string) {
       fromE164: call.fromE164,
       timeoutSeconds: settings.ringTimeoutSeconds,
       record: settings.recordingEnabled,
-      amd: false,
+      amd: settings.amdEnabled,
     });
     await prisma.call.update({
       where: { id: call.id },
@@ -250,6 +273,22 @@ export async function afterCallFinalized(callId: string) {
     }
   }
   const settings = await getBusinessSettings(call.businessId);
+  // Technical failure policy: provider failed before the lead ever rang → no wrap-up needed,
+  // the attempt is not counted and the lead returns to the queue after a short delay.
+  const technicalFailure = call.status === "failed" && !call.ringingAt && !call.answeredAt && !call.outcomeSavedAt;
+  if (technicalFailure) {
+    await prisma.call.update({ where: { id: call.id }, data: { outcomeSavedAt: new Date(), outcomeNote: `כשל טכני: ${call.failureReason ?? call.hangupCause ?? "unknown"}` } });
+    if (call.leadId) {
+      await prisma.listLead.updateMany({
+        where: { id: call.leadId, lockedByUserId: call.userId },
+        data: { status: "pending", attempts: { decrement: 1 }, nextAttemptAt: new Date(Date.now() + settings.technicalFailureRetryMinutes * 60_000), lockedByUserId: null, lockToken: null, lockExpiresAt: null },
+      });
+    }
+    await prisma.user.updateMany({ where: { id: call.userId, presence: "in_call" }, data: { presence: "available", presenceAt: new Date() } });
+    const { audit } = await import("@/lib/audit");
+    await audit(call.businessId, null, "automation", call.id, "automation.technical_failure_requeued", { trigger: "call.failed", leadId: call.leadId, retryMinutes: settings.technicalFailureRetryMinutes, reason: call.failureReason, result: "ok" });
+    return;
+  }
   if (call.leadId) {
     // Keep the lead locked for wrap-up; the outcome save releases it.
     await prisma.listLead.updateMany({

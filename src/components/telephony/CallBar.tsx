@@ -24,7 +24,7 @@ export function callElapsed(call: { answeredAt: string | null; createdAt: string
 }
 
 export function CallBar() {
-  const { state, hangup, phone, busy } = useDialer();
+  const { state, hangup, phone, busy, acceptInbound, rejectInbound } = useDialer();
   const pathname = usePathname();
   const call = state?.activeCall;
   const wrap = state?.wrapUpCall;
@@ -42,7 +42,14 @@ export function CallBar() {
         <Badge tone={answered ? "good" : "warn"}>{CALL_STATUS_LABEL[call.status]}</Badge>
         {answered && <span className="tabular font-mono text-sm">{formatDuration(callElapsed(call))}</span>}
         {state?.telephony.simulation && <Badge tone="warn">הדמיה</Badge>}
+        {call.direction === "inbound" && !call.answeredAt && <Badge tone="info">שיחה נכנסת</Badge>}
         <div className="ms-auto flex items-center gap-2">
+          {call.direction === "inbound" && !call.answeredAt && (
+            <>
+              <Button size="sm" variant="good" onClick={acceptInbound} loading={busy === "accept"}>קבל</Button>
+              <Button size="sm" variant="danger" onClick={rejectInbound} loading={busy === "reject"}>דחה</Button>
+            </>
+          )}
           <Button size="sm" variant={phone.muted ? "warn" : "secondary"} onClick={phone.toggleMute} disabled={!answered}>
             {phone.muted ? "בטל השתקה" : "השתק"}
           </Button>

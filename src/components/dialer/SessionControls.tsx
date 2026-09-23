@@ -43,8 +43,10 @@ export function SessionControls() {
           {session.list ? ` · ${session.list.name}` : ""}
         </Badge>
         {q && (
-          <span className="text-xs text-muted">
+          <span className="text-xs text-muted" title={`לא זמינים: ממתינים לניסיון חוזר ${q.unavailable.notDueYet} · בטיפול ${q.unavailable.inProgress} · מוצו ${q.unavailable.exhausted} · DNC ${q.unavailable.dnc}`}>
             בתור עכשיו <b className="text-text tabular">{q.dueNow}</b> · סה״כ <span className="tabular">{q.total}</span> · הושלמו <span className="tabular">{q.byStatus.completed ?? 0}</span>
+            {q.unavailable.outsideDialWindow && <Badge tone="warn" className="ms-2">מחוץ לחלון החיוג</Badge>}
+            {q.unavailable.listPaused && <Badge tone="bad" className="ms-2">הרשימה מושהית</Badge>}
           </span>
         )}
         <span className="text-xs text-muted">

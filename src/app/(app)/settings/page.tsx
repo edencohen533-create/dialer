@@ -6,8 +6,9 @@ import { api, qs } from "@/lib/client/api";
 import { Badge, Button, Input, Modal, Panel, Phone, Select, Spinner, Textarea, cx } from "@/components/ui";
 import { formatDateTime, formatPhone } from "@/lib/client/format";
 
-type Tab = "general" | "numbers" | "users" | "scripts" | "dnc" | "telephony";
-interface Settings { wrapUpSeconds: number; autoDialCountdownSeconds: number; maxAttempts: number; retryIntervalMinutes: number; busyRetryMinutes: number; lockTtlSeconds: number; ringTimeoutSeconds: number; recordingEnabled: boolean; recordingAnnouncement: string; dialWindow: { start: string; end: string; days: number[] } }
+type Tab = "general" | "priority" | "safety" | "numbers" | "users" | "scripts" | "dnc" | "telephony" | "history";
+interface Prio { callbackDue: number; priority: number; newLeadPerHour: number; newLeadMaxHours: number; agingPerHour: number; agingMaxHours: number; attemptPenalty: number; ownerMatch: number; sourceWeights: Record<string, number>; interestedBefore: number }
+interface Settings { wrapUpSeconds: number; autoDialCountdownSeconds: number; maxAttempts: number; retryIntervalMinutes: number; busyRetryMinutes: number; technicalFailureRetryMinutes: number; lockTtlSeconds: number; ringTimeoutSeconds: number; recordingEnabled: boolean; recordingAnnouncement: string; recordingRetentionDays: number; amdEnabled: boolean; stickyOwner: boolean; removeFromOtherListsOnSale: boolean; dialingPaused: boolean; allowedCountries: string[]; maxDialsPerMinute: number; dialWindow: { start: string; end: string; days: number[] }; prioritization: Prio; inbound: { preferOwner: boolean; createCallbackTask: boolean; respectDialWindow: boolean } }
 interface Tel { provider: string; simulation: boolean; requested: string; telnyx: { configured: boolean; missing: string[] } }
 
 export default function SettingsPage() {
@@ -15,7 +16,7 @@ export default function SettingsPage() {
   const [me, setMe] = useState<{ role: string } | null>(null);
   useEffect(() => { api.get<{ user: { role: string } }>("/api/auth/me").then((m) => setMe(m.user)).catch(() => undefined); }, []);
   const isAdmin = me?.role === "admin";
-  const tabs: Array<[Tab, string]> = [["general", "חייגן"], ["numbers", "מספרים יוצאים"], ["users", "משתמשים"], ["scripts", "תסריטים"], ["dnc", "לא ליצור קשר"], ["telephony", "טלפוניה"]];
+  const tabs: Array<[Tab, string]> = [["general", "חייגן"], ["priority", "תעדוף לידים"], ["safety", "בטיחות ושיחות נכנסות"], ["numbers", "מספרים יוצאים"], ["users", "משתמשים"], ["scripts", "תסריטים"], ["dnc", "לא ליצור קשר"], ["telephony", "טלפוניה"], ["history", "היסטוריית שינויים"]];
   return (
     <div className="p-5 space-y-4 max-w-5xl">
       <h1 className="text-lg font-semibold">הגדרות</h1>
@@ -23,6 +24,9 @@ export default function SettingsPage() {
         {tabs.map(([k, v]) => <button key={k} onClick={() => setTab(k)} className={cx("h-10 px-4 text-sm border-b-2 -mb-px", tab === k ? "border-accent text-text" : "border-transparent text-muted hover:text-text")}>{v}</button>)}
       </div>
       {tab === "general" && <GeneralTab isAdmin={isAdmin} />}
+      {tab === "priority" && <PriorityTab isAdmin={isAdmin} />}
+      {tab === "safety" && <SafetyTab isAdmin={isAdmin} />}
+      {tab === "history" && <HistoryTab />}
       {tab === "numbers" && <NumbersTab isAdmin={isAdmin} />}
       {tab === "users" && <UsersTab isAdmin={isAdmin} />}
       {tab === "scripts" && <ScriptsTab />}
@@ -53,6 +57,11 @@ function GeneralTab({ isAdmin }: { isAdmin: boolean }) {
         {num("busyRetryMinutes", "מרווח לניסיון חוזר – תפוס (דק׳)")}
         {num("ringTimeoutSeconds", "זמן צלצול מקסימלי (שנ׳)")}
         {num("lockTtlSeconds", "תוקף נעילת ליד (שנ׳)", "מתחדש אוטומטית כל 15 שנ׳ כל עוד הנציג מחובר")}
+        {num("technicalFailureRetryMinutes", "כשל טכני – חזרה לתור אחרי (דק׳)", "כשל ספק לפני צלצול: הניסיון לא נספר, אין צורך בתיעוד")}
+        {num("recordingRetentionDays", "שמירת הקלטות (ימים, 0 = לתמיד)", "הקלטות ישנות יותר נמחקות אצל הספק בעבודת רקע יומית")}
+        <label className="flex items-center gap-2 text-sm md:col-span-3"><input type="checkbox" checked={s.amdEnabled} disabled={!isAdmin} onChange={(e) => setS({ ...s, amdEnabled: e.target.checked })} /> זיהוי תא קולי (Telnyx AMD) – מוצג לנציג כהצעה בלבד, לעולם לא מנתק אוטומטית</label>
+        <label className="flex items-center gap-2 text-sm md:col-span-3"><input type="checkbox" checked={s.stickyOwner} disabled={!isAdmin} onChange={(e) => setS({ ...s, stickyOwner: e.target.checked })} /> ליד שלא נענה נשאר אצל הנציג שטיפל בו (עד שעה איחור, אחר כך לכולם)</label>
+        <label className="flex items-center gap-2 text-sm md:col-span-3"><input type="checkbox" checked={s.removeFromOtherListsOnSale} disabled={!isAdmin} onChange={(e) => setS({ ...s, removeFromOtherListsOnSale: e.target.checked })} /> מכירה סוגרת את הליד בכל הרשימות האחרות של העסק</label>
         <div className="md:col-span-3">
           <span className="block text-xs text-muted mb-1">חלון חיוג ברירת מחדל</span>
           <div className="flex flex-wrap items-center gap-2">
@@ -176,6 +185,82 @@ function TelephonyTab() {
         <li>הגדר <code className="ltr text-xs">TELEPHONY_PROVIDER=telnyx</code> ופרוס מחדש. הוסף את המספרים היוצאים בלשונית &quot;מספרים יוצאים&quot; בפורמט E.164.</li>
       </ol>
       <p className="text-xs text-muted mt-4">זרימת שיחה: השרת מחייג קודם לדפדפן הנציג (SIP leg), ורק אחרי שהדפדפן עונה מחייג ללקוח ומגשר בין השניים כשהלקוח עונה. מצב &quot;נענה&quot; מגיע אך ורק מאירועי Telnyx החתומים.</p>
+    </Panel>
+  );
+}
+
+function PriorityTab({ isAdmin }: { isAdmin: boolean }) {
+  const [p, setP] = useState<Prio | null>(null);
+  const [src, setSrc] = useState(""); const [w, setW] = useState("10");
+  useEffect(() => { api.get<{ settings: Settings }>("/api/settings").then((r) => setP(r.settings.prioritization)).catch((e) => toast.error(e.message)); }, []);
+  if (!p) return <Spinner />;
+  const num = (k: keyof Prio, label: string, hint: string) => <Input label={label} hint={hint} type="number" step="0.25" value={String(p[k])} onChange={(e) => setP({ ...p, [k]: Number(e.target.value) })} disabled={!isAdmin} />;
+  async function save() { try { await api.patch("/api/settings", { settings: { prioritization: p } }); toast.success("כללי התעדוף נשמרו"); } catch (e) { toast.error((e as Error).message); } }
+  return (
+    <Panel title="תעדוף לידים (שקוף)" actions={isAdmin && <Button size="sm" onClick={save}>שמור</Button>}>
+      <p className="text-xs text-muted mb-3">ציון = סכום הגורמים × המשקלים. הליד עם הציון הגבוה ביותר נמסר ראשון, והנציג רואה הסבר קצר (&quot;למה עכשיו&quot;). גורם ההזדקנות מבטיח שלידים בעדיפות נמוכה לא נשארים לנצח.</p>
+      <div className="grid md:grid-cols-3 gap-3">
+        {num("callbackDue", "חזרה שהגיע מועדה", "בונוס חד-פעמי לליד במצב חזרה")}
+        {num("priority", "עדיפות עסקית (לנקודה)", "מוכפל בעדיפות הליד 0–100")}
+        {num("newLeadPerHour", "ליד חדש – לשעה מאז הכניסה", "רק ללידים שטרם חויגו")}
+        {num("newLeadMaxHours", "תקרת שעות לליד חדש", "")}
+        {num("agingPerHour", "הזדקנות – לשעה מאז הניסיון האחרון", "מונע הרעבה של לידים")}
+        {num("agingMaxHours", "תקרת שעות הזדקנות", "")}
+        {num("attemptPenalty", "קנס לכל ניסיון קודם", "")}
+        {num("ownerMatch", "הליד שייך לנציג המושך", "")}
+        {num("interestedBefore", "הביע עניין בשיחה קודמת", "")}
+      </div>
+      <div className="mt-4">
+        <span className="block text-xs text-muted mb-1">משקל לפי מקור</span>
+        <div className="flex flex-wrap gap-2 mb-2">{Object.entries(p.sourceWeights).map(([k, v]) => <Badge key={k} tone="accent">{k}: {v} {isAdmin && <button onClick={() => { const sw = { ...p.sourceWeights }; delete sw[k]; setP({ ...p, sourceWeights: sw }); }} className="ms-1">×</button>}</Badge>)}</div>
+        {isAdmin && <div className="flex gap-2"><Input placeholder="מקור (למשל facebook)" value={src} onChange={(e) => setSrc(e.target.value)} /><Input type="number" value={w} onChange={(e) => setW(e.target.value)} className="w-24" /><Button variant="secondary" onClick={() => { if (src.trim()) { setP({ ...p, sourceWeights: { ...p.sourceWeights, [src.trim()]: Number(w) } }); setSrc(""); } }}>הוסף</Button></div>}
+      </div>
+    </Panel>
+  );
+}
+
+function SafetyTab({ isAdmin }: { isAdmin: boolean }) {
+  const [s, setS] = useState<Settings | null>(null);
+  const [country, setCountry] = useState("");
+  useEffect(() => { api.get<{ settings: Settings }>("/api/settings").then((r) => setS(r.settings)).catch((e) => toast.error(e.message)); }, []);
+  if (!s) return <Spinner />;
+  async function save() { if (!s) return; try { await api.patch("/api/settings", { settings: { dialingPaused: s.dialingPaused, allowedCountries: s.allowedCountries, maxDialsPerMinute: s.maxDialsPerMinute, inbound: s.inbound } }); toast.success("נשמר"); } catch (e) { toast.error((e as Error).message); } }
+  return (
+    <Panel title="בטיחות, מגבלות ושיחות נכנסות" actions={isAdmin && <Button size="sm" onClick={save}>שמור</Button>}>
+      <div className="space-y-4 text-sm">
+        <label className="flex items-center gap-2"><input type="checkbox" checked={s.dialingPaused} disabled={!isAdmin} onChange={(e) => setS({ ...s, dialingPaused: e.target.checked })} /> <b>עצירת חיוגים חדשים לכל העסק</b> (kill switch – שיחות פעילות לא נותקות)</label>
+        <Input label="מגבלת חיוגים לנציג לדקה (0 = ללא)" type="number" value={String(s.maxDialsPerMinute)} disabled={!isAdmin} onChange={(e) => setS({ ...s, maxDialsPerMinute: Number(e.target.value) })} className="w-48" />
+        <div>
+          <span className="block text-xs text-muted mb-1">מדינות יעד מותרות (ריק = הכול)</span>
+          <div className="flex flex-wrap gap-2 mb-2">{s.allowedCountries.map((c) => <Badge key={c} tone="accent">{c} {isAdmin && <button onClick={() => setS({ ...s, allowedCountries: s.allowedCountries.filter((x) => x !== c) })} className="ms-1">×</button>}</Badge>)}</div>
+          {isAdmin && <div className="flex gap-2"><Input placeholder="IL" value={country} onChange={(e) => setCountry(e.target.value.toUpperCase())} className="w-24" ltr /><Button variant="secondary" onClick={() => { if (/^[A-Z]{2}$/.test(country) && !s.allowedCountries.includes(country)) { setS({ ...s, allowedCountries: [...s.allowedCountries, country] }); setCountry(""); } }}>הוסף</Button></div>}
+        </div>
+        <div className="border-t border-line pt-3 space-y-2">
+          <p className="font-medium">שיחות נכנסות</p>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={s.inbound.preferOwner} disabled={!isAdmin} onChange={(e) => setS({ ...s, inbound: { ...s.inbound, preferOwner: e.target.checked } })} /> לנתב קודם לנציג האחראי על הלקוח (אם זמין)</label>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={s.inbound.createCallbackTask} disabled={!isAdmin} onChange={(e) => setS({ ...s, inbound: { ...s.inbound, createCallbackTask: e.target.checked } })} /> ליצור משימת חזרה לשיחה נכנסת שלא נענתה</label>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={s.inbound.respectDialWindow} disabled={!isAdmin} onChange={(e) => setS({ ...s, inbound: { ...s.inbound, respectDialWindow: e.target.checked } })} /> מחוץ לשעות הפעילות: לא לנתב לנציגים (נרשם כלא נענה)</label>
+          <p className="text-xs text-muted">ללא נציג זמין השיחה מנותקת ונרשמת. תורים, IVR ותא קולי אינם ממומשים (דורשים הגדרת Telnyx Queues / TeXML והחלטת מוצר).</p>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function HistoryTab() {
+  const [items, setItems] = useState<Array<{ id: string; action: string; entityType: string; entityId: string; createdAt: string; payload: Record<string, unknown> | null; actor: { fullName: string } | null }>>([]);
+  useEffect(() => { api.get<typeof items>("/api/settings/history").then(setItems).catch((e) => toast.error(e.message)); }, []);
+  return (
+    <Panel title="היסטוריית שינויים ואוטומציות">
+      <ul className="divide-y divide-line text-sm">
+        {items.map((i) => (
+          <li key={i.id} className="py-2">
+            <div className="flex items-center gap-2"><Badge tone={i.entityType === "automation" ? "info" : "neutral"}>{i.action}</Badge><span className="text-muted text-xs">{formatDateTime(i.createdAt)} · {i.actor?.fullName ?? "מערכת"}</span></div>
+            {i.payload && <pre className="text-[11px] text-muted mt-1 whitespace-pre-wrap ltr text-left max-h-24 overflow-auto">{JSON.stringify(i.payload, null, 1).slice(0, 600)}</pre>}
+          </li>
+        ))}
+        {items.length === 0 && <li className="py-6 text-center text-muted">אין רשומות</li>}
+      </ul>
     </Panel>
   );
 }

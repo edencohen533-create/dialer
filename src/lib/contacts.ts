@@ -40,7 +40,7 @@ export function contactWhere(businessId: string, f: ContactFilter): Prisma.Conta
 
 export const contactInputSchema = z.object({
   fullName: z.string().min(1).max(120),
-  phone: z.string().min(3).max(30),
+  phone: z.string().min(1).max(30),
   email: z.string().email().or(z.literal("")).optional(),
   company: z.string().max(120).optional(),
   city: z.string().max(80).optional(),
@@ -55,10 +55,13 @@ export async function importContacts(businessId: string, rows: z.infer<typeof co
   let created = 0,
     updated = 0,
     invalid = 0;
-  for (const r of rows) {
+  const errors: Array<{ row: number; phone: string; reason: string }> = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
     const e164 = normalizePhone(r.phone);
     if (!e164) {
       invalid++;
+      errors.push({ row: i + 1, phone: r.phone, reason: "מספר טלפון לא תקין" });
       continue;
     }
     const data = {
@@ -81,5 +84,5 @@ export async function importContacts(businessId: string, rows: z.infer<typeof co
       created++;
     }
   }
-  return { created, updated, invalid };
+  return { created, updated, invalid, errors: errors.slice(0, 200) };
 }

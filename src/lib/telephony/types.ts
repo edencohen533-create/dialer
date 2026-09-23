@@ -17,6 +17,10 @@ export interface ProviderEvent {
   /** Our call id, when the vendor echoed it back (client_state). */
   callId?: string;
   leg?: "agent" | "lead";
+  /** Provider-reported direction of the leg (inbound routing uses "incoming"). */
+  direction?: "incoming" | "outgoing";
+  from?: string;
+  to?: string;
   occurredAt?: Date;
   hangupCause?: string;
   hangupSource?: string;
@@ -30,6 +34,10 @@ export interface DialAgentInput {
   sipUsername: string;
   fromE164: string;
   timeoutSeconds: number;
+  /** Inbound: bridge the agent leg to this (already answered) customer leg when the agent answers. */
+  linkToLegId?: string;
+  /** Shown on the agent's device for inbound calls. */
+  callerDisplay?: string;
 }
 
 export interface DialLeadInput {
@@ -55,6 +63,8 @@ export interface TelephonyAdapter {
   dialAgent(input: DialAgentInput): Promise<DialResult>;
   dialLead(input: DialLeadInput): Promise<DialResult>;
   hangupLeg(legId: string, commandId: string): Promise<void>;
+  /** Answer an inbound leg (needed before bridging). */
+  answerLeg(legId: string, commandId: string): Promise<void>;
   sendDtmf(legId: string, digits: string, commandId: string): Promise<void>;
   /** Is the leg still alive at the provider? `null` = unknown (provider unreachable). */
   isLegAlive(legId: string): Promise<boolean | null>;

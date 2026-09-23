@@ -14,6 +14,7 @@ import { prisma } from "@/lib/db";
 import type { DialAgentInput, DialLeadInput, DialResult, ProviderEvent, TelephonyAdapter } from "./types";
 
 export const MOCK_TIMELINE = {
+  inboundRingTimeoutMs: 25_000,
   agentAnswerMs: 700,
   leadInitiatedMs: 1_200,
   leadAnswerMs: 4_500,
@@ -40,6 +41,9 @@ export const mockAdapter: TelephonyAdapter = {
     // Record an explicit hangup request; advanceMockCall() turns it into a hangup event.
     const callId = legId.replace(/^mock-(agent|lead)-/, "");
     await prisma.call.updateMany({ where: { id: callId, endedAt: null, hangupRequestedAt: null }, data: { hangupRequestedAt: new Date() } });
+  },
+  async answerLeg() {
+    /* no-op in simulation */
   },
   async sendDtmf() {
     /* no-op in simulation */
@@ -68,8 +72,10 @@ export function dueMockEvents(call: {
   toE164: string;
   hangupRequestedAt: Date | null;
   leadDialedAt?: Date | null;
+  direction?: "outbound" | "inbound";
 }): ProviderEvent[] {
   if (call.endedAt) return [];
+  if (call.direction === "inbound") return dueInboundMockEvents(call);
   const now = Date.now();
   const t0 = call.createdAt.getTime();
   const events: ProviderEvent[] = [];
@@ -109,6 +115,29 @@ export function dueMockEvents(call: {
       events.push(mk("lead-answered", "leg.answered", "lead"));
       events.push(mk("lead-bridged", "leg.bridged", "lead"));
     }
+  }
+  return events;
+}
+
+/**
+ * Inbound simulation: the customer leg is "answered" immediately (we answer to bridge),
+ * the agent leg rings in the browser until the agent accepts (agentAnsweredAt set by the
+ * accept endpoint) or the ring timeout passes → customer hangs up (missed).
+ */
+function dueInboundMockEvents(call: { id: string; createdAt: Date; agentAnsweredAt: Date | null; answeredAt: Date | null; hangupRequestedAt: Date | null }): ProviderEvent[] {
+  const now = Date.now();
+  const mk = (suffix: string, type: ProviderEvent["type"], leg: "agent" | "lead", extra: Partial<ProviderEvent> = {}): ProviderEvent => ({
+    provider: "mock", eventId: `mock:${call.id}:${suffix}`, type, legId: `mock-${leg}-${call.id}`, callId: call.id, leg, occurredAt: new Date(), raw: { simulated: true }, ...extra,
+  });
+  const events: ProviderEvent[] = [];
+  if (call.hangupRequestedAt) {
+    events.push(mk("lead-hangup", "leg.hangup", "lead", { hangupCause: call.answeredAt ? "normal_clearing" : "originator_cancel", hangupSource: "caller" }));
+    return events;
+  }
+  if (call.agentAnsweredAt) {
+    events.push(mk("lead-bridged", "leg.bridged", "lead"));
+  } else if (now - call.createdAt.getTime() >= MOCK_TIMELINE.inboundRingTimeoutMs) {
+    events.push(mk("lead-hangup", "leg.hangup", "lead", { hangupCause: "originator_cancel", hangupSource: "caller" }));
   }
   return events;
 }

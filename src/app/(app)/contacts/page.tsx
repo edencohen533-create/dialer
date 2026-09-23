@@ -85,8 +85,9 @@ export default function ContactsPage() {
       return { fullName: c[iName] ?? "", phone: c[iPhone] ?? "", email: iEmail >= 0 ? c[iEmail] : undefined, company: iCompany >= 0 ? c[iCompany] : undefined, city: iCity >= 0 ? c[iCity] : undefined, source: iSource >= 0 ? c[iSource] : undefined };
     }).filter((r) => r.fullName && r.phone);
     try {
-      const r = await api.post<{ created: number; updated: number; invalid: number }>("/api/contacts/import", { rows: rowsIn, source: "csv" });
+      const r = await api.post<{ created: number; updated: number; invalid: number; errors: Array<{ row: number; phone: string; reason: string }> }>("/api/contacts/import", { rows: rowsIn, source: "csv" });
       toast.success(`נוצרו ${r.created}, עודכנו ${r.updated}, לא תקינים ${r.invalid}`);
+      if (r.errors?.length) toast.error(`שגיאות: ${r.errors.slice(0, 5).map((e) => `שורה ${e.row + 1} (${e.phone}): ${e.reason}`).join(" · ")}${r.errors.length > 5 ? ` ועוד ${r.errors.length - 5}` : ""}`, { duration: 15000 });
       setImportOpen(false);
       setCsv("");
       load();
