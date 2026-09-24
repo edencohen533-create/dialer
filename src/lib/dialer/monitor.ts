@@ -57,11 +57,12 @@ export async function startMonitor(user: SessionUser, callId: string) {
     monitor = await prisma.callMonitor.create({ data: { businessId: user.businessId, callId, managerId: user.id, activeForManager: user.id, mode: "listen", status: "connecting" } });
   } catch {
     const again = await activeMonitorFor(user.id);
-    if (again) return again;
+    if (again?.callId === callId && again.status !== "failed") return again;
     throw new ApiError("לא ניתן להתחיל האזנה", 409, "monitor_active");
   }
   await audit(user.businessId, user.id, "monitor", monitor.id, "monitor.started", { callId, agentId: call.userId, mode: "listen" });
 
+  let legId: string;
   try {
     const r = await telephony.dialSupervisor({
       monitorId: monitor.id,
@@ -72,11 +73,20 @@ export async function startMonitor(user: SessionUser, callId: string) {
       whisperToLegId: call.agentLegId ?? `mock-agent-${callId}`,
       timeoutSeconds: SUPERVISOR_RING_SECONDS,
     });
-    monitor = await prisma.callMonitor.update({ where: { id: monitor.id }, data: { legId: r.legId, lastEventAt: new Date() } });
+    legId = r.legId;
   } catch (err) {
     monitor = await prisma.callMonitor.update({ where: { id: monitor.id }, data: { status: "failed", error: String((err as Error).message).slice(0, 300), endedAt: new Date(), activeForManager: null } });
     await audit(user.businessId, user.id, "monitor", monitor.id, "monitor.failed", { reason: monitor.error });
     throw new ApiError("החיבור לספק נכשל: " + monitor.error, 502, "monitor_failed");
+  }
+  // Cancellation / call completion can occur while the provider request is in flight.
+  // Persist the returned leg even then, so cleanup targets the actual media resource.
+  monitor = await prisma.callMonitor.update({ where: { id: monitor.id }, data: { legId, lastEventAt: new Date() } });
+  const currentCall = await prisma.call.findUnique({ where: { id: callId }, select: { endedAt: true } });
+  if (monitor.endedAt || currentCall?.endedAt) {
+    await telephony.hangupLeg(legId, `${monitor.id}-hangup-supervisor`);
+    await markMonitorEnded(monitor.id, "call_ended_during_connect");
+    return prisma.callMonitor.findUniqueOrThrow({ where: { id: monitor.id } });
   }
   return monitor;
 }
@@ -86,8 +96,8 @@ export async function markMonitorJoined(monitorId: string) {
   const m = await prisma.callMonitor.findUnique({ where: { id: monitorId } });
   if (!m || m.endedAt) return;
   if (m.status === "connecting") {
-    await prisma.callMonitor.update({ where: { id: monitorId }, data: { status: "listening", joinedAt: new Date(), lastEventAt: new Date() } });
-    await audit(m.businessId, m.managerId, "monitor", monitorId, "monitor.joined", { callId: m.callId });
+    const changed = await prisma.callMonitor.updateMany({ where: { id: monitorId, endedAt: null, status: "connecting" }, data: { status: "listening", joinedAt: new Date(), lastEventAt: new Date() } });
+    if (changed.count) await audit(m.businessId, m.managerId, "monitor", monitorId, "monitor.joined", { callId: m.callId });
   }
 }
 
@@ -124,7 +134,9 @@ export async function switchMode(user: SessionUser, monitorId: string, mode: "li
   if (!m.legId) throw new ApiError("אין leg למנהל", 409, "not_joined");
   const telephony = getTelephony();
   await telephony.switchSupervisorRole(m.legId, mode === "whisper" ? "whisper" : "monitor");
-  const updated = await prisma.callMonitor.update({ where: { id: m.id }, data: { mode, status: mode === "whisper" ? "whispering" : "listening", lastEventAt: new Date() } });
+  const changed = await prisma.callMonitor.updateMany({ where: { id: m.id, endedAt: null, call: { endedAt: null } }, data: { mode, status: mode === "whisper" ? "whispering" : "listening", lastEventAt: new Date() } });
+  if (!changed.count) throw new ApiError("השיחה או ההאזנה הסתיימו", 409, "monitor_ended");
+  const updated = await prisma.callMonitor.findUniqueOrThrow({ where: { id: m.id } });
   await audit(user.businessId, user.id, "monitor", m.id, mode === "whisper" ? "monitor.whisper_on" : "monitor.whisper_off", { callId: m.callId, agentId: call.userId });
   return updated;
 }

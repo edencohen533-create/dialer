@@ -1,0 +1,3 @@
+PASS U20 מנהל רואה נציג בשיחה תוך ~2ש׳, מצטרף להאזנה, לוחש בלחיצה-והחזקה, אובדן פוקוס מפסיק, יציאה לא פוגעת בשיחה :: failed disconnect retained panel=true; אירוע-הוחל→שורה 'בשיחה' 90ms (כולל poll 1.5s + זמן בקשה מקומי); מחותמת הספק 112ms; row="דכדנה כהןצוות מכירות▶ בשיחה · 00:00רחל אברהם050-123-4533↗ יו"; whisper audit=true; blur→listen=true; agent call alive after exit=true; monitor cleared=true
+
+SUMMARY {"total":1,"passed":1,"failed":0}

@@ -79,7 +79,12 @@ export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessRe
   if (ev.leg === "supervisor" || ev.legId.startsWith("mock-supervisor-")) {
     const monitor = ev.monitorId ? await prisma.callMonitor.findUnique({ where: { id: ev.monitorId } }) : await prisma.callMonitor.findFirst({ where: { legId: ev.legId } });
     if (monitor) {
-      if (ev.type === "conference.joined") await markMonitorJoined(monitor.id);
+      // A webhook may be the only evidence of the leg when the dial request times out.
+      const fresh = await prisma.callMonitor.update({ where: { id: monitor.id }, data: { legId: ev.legId }, include: { call: { select: { endedAt: true } } } });
+      if ((fresh.endedAt || fresh.call.endedAt) && ev.type !== "leg.hangup" && ev.type !== "conference.left") {
+        await getTelephony().hangupLeg(ev.legId, `${monitor.id}-hangup-supervisor`);
+        await markMonitorEnded(monitor.id, "late_supervisor_leg");
+      } else if (ev.type === "conference.joined") await markMonitorJoined(monitor.id);
       else if (ev.type === "leg.hangup" || ev.type === "conference.left") await markMonitorEnded(monitor.id, ev.hangupCause ?? "supervisor_left");
       await prisma.telephonyEvent.update({ where: { provider_providerEventId: { provider: ev.provider, providerEventId: ev.eventId } }, data: { processedAt: new Date(), callId: monitor.callId, businessId: monitor.businessId } });
       return { duplicate: false, callId: monitor.callId };

@@ -1,4 +1,4 @@
-import { stopMonitor } from "../src/lib/dialer/monitor";
+import { stopMonitor, startMonitor, switchMode, markMonitorEnded } from "../src/lib/dialer/monitor";
 import { businessDayStart } from "../src/lib/business-day";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -75,6 +75,48 @@ async function main() {
     await stopMonitor(manager,m.id);
     assert.ok((await db.callMonitor.findUniqueOrThrow({where:{id:m.id}})).endedAt);
     assert.equal((await db.call.findUniqueOrThrow({where:{id:c.id}})).endedAt,null);
+  });
+  async function monitorFixture() {
+    const c=await dial();
+    await db.call.update({where:{id:c.id},data:{answeredAt:new Date(),status:"answered"}});
+    const manager=await db.user.create({data:{businessId:b.id,fullName:"QA supervisor race",email:`${crypto.randomUUID()}@qa.local`,passwordHash:"unused",role:"admin"}});
+    return {c,manager};
+  }
+  await test("F7","Stopping while supervisor dial is pending disconnects the late leg",async()=>{
+    const {c,manager}=await monitorFixture();
+    const originalDial=mockAdapter.dialSupervisor, originalHangup=mockAdapter.hangupLeg;
+    const hung:string[]=[];
+    mockAdapter.hangupLeg=async id=>{hung.push(id);};
+    mockAdapter.dialSupervisor=async input=>{
+      await stopMonitor(manager,input.monitorId);
+      return {legId:"late-supervisor-leg"};
+    };
+    try {const m=await startMonitor(manager,c.id);assert.ok(m.endedAt);assert.ok(hung.includes("late-supervisor-leg"));}
+    finally {mockAdapter.dialSupervisor=originalDial;mockAdapter.hangupLeg=originalHangup;}
+  });
+  await test("F8","Delayed whisper response cannot overwrite an ended monitor",async()=>{
+    const {c,manager}=await monitorFixture();
+    const m=await db.callMonitor.create({data:{businessId:b.id,callId:c.id,managerId:manager.id,activeForManager:manager.id,mode:"listen",status:"listening",legId:"race-supervisor-leg"}});
+    const original=mockAdapter.switchSupervisorRole;
+    mockAdapter.switchSupervisorRole=async()=>{await markMonitorEnded(m.id,"provider_left");};
+    try {await assert.rejects(switchMode(manager,m.id,"whisper"));assert.equal((await db.callMonitor.findUniqueOrThrow({where:{id:m.id}})).status,"ended");}
+    finally {mockAdapter.switchSupervisorRole=original;}
+  });
+  await test("F9","Late supervisor join learns its leg and disconnects after cancellation",async()=>{
+    const {c,manager}=await monitorFixture();
+    const m=await db.callMonitor.create({data:{businessId:b.id,callId:c.id,managerId:manager.id,mode:"listen",status:"ended",endedAt:new Date()}});
+    const original=mockAdapter.hangupLeg;const hung:string[]=[];
+    const event={provider:"mock" as const,eventId:crypto.randomUUID(),type:"conference.joined" as const,callId:c.id,monitorId:m.id,leg:"supervisor" as const,legId:"late-webhook-leg",raw:{test:true}};
+    mockAdapter.hangupLeg=async()=>{throw new Error("injected late leg cleanup failure");};
+    try {
+      await assert.rejects(processProviderEvent(event),/cleanup failure/);
+      assert.equal((await db.telephonyEvent.findUniqueOrThrow({where:{provider_providerEventId:{provider:"mock",providerEventId:event.eventId}}})).processedAt,null);
+      mockAdapter.hangupLeg=async id=>{hung.push(id);};
+      await processProviderEvent(event);
+      assert.ok(hung.includes("late-webhook-leg"));
+      assert.equal((await db.callMonitor.findUniqueOrThrow({where:{id:m.id}})).legId,"late-webhook-leg");
+      assert.equal((await db.call.findUniqueOrThrow({where:{id:c.id}})).endedAt,null);
+    } finally {mockAdapter.hangupLeg=original;}
   });
   await db.call.updateMany({where:{businessId:b.id},data:{endedAt:new Date(),activeForUser:null,outcomeSavedAt:new Date()}});
   fs.writeFileSync(process.env.QA_RESULT??".qa-local/provider.json",JSON.stringify({at:new Date().toISOString(),mode:"injected provider transport; zero external calls",rows},null,2));

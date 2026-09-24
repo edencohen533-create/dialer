@@ -1,0 +1,20 @@
+(node:73510) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+PASS F1 Immediate hangup before agent answers reaches terminal state
+PASS F2 Early agent webhook cannot be overwritten by dial response
+prisma:error 
+Invalid `tx.user.updateMany()` invocation in
+<repo>/src/lib/telephony/events.ts:362:19
+
+  359     data: { status: "locked", lockExpiresAt: new Date(Date.now() + (settings.wrapUpSeconds + settings.lockTtlSeconds) * 1000) },
+  360   });
+  361 }
+→ 362 await tx.user.updateMany(
+Database error. Code: `P0001`. Message: `injected finalization failure`
+PASS F3 A failed finalization side effect is retried on event redelivery
+PASS F4 Unknown dial timeout never redials beyond provider deduplication window
+PASS F5 Business day boundaries are independent of server timezone and DST
+PASS F6 Failed supervisor hangup does not report a successful disconnect
+PASS F7 Stopping while supervisor dial is pending disconnects the late leg
+PASS F8 Delayed whisper response cannot overwrite an ended monitor
+PASS F9 Late supervisor join learns its leg and disconnects after cancellation

@@ -1,0 +1,51 @@
+{
+  "at": "2026-09-24T02:05:02.379Z",
+  "mode": "injected provider transport; zero external calls",
+  "rows": [
+    {
+      "id": "F1",
+      "name": "Immediate hangup before agent answers reaches terminal state",
+      "status": "עבר"
+    },
+    {
+      "id": "F2",
+      "name": "Early agent webhook cannot be overwritten by dial response",
+      "status": "עבר"
+    },
+    {
+      "id": "F3",
+      "name": "A failed finalization side effect is retried on event redelivery",
+      "status": "עבר"
+    },
+    {
+      "id": "F4",
+      "name": "Unknown dial timeout never redials beyond provider deduplication window",
+      "status": "עבר"
+    },
+    {
+      "id": "F5",
+      "name": "Business day boundaries are independent of server timezone and DST",
+      "status": "עבר"
+    },
+    {
+      "id": "F6",
+      "name": "Failed supervisor hangup does not report a successful disconnect",
+      "status": "עבר"
+    },
+    {
+      "id": "F7",
+      "name": "Stopping while supervisor dial is pending disconnects the late leg",
+      "status": "עבר"
+    },
+    {
+      "id": "F8",
+      "name": "Delayed whisper response cannot overwrite an ended monitor",
+      "status": "עבר"
+    },
+    {
+      "id": "F9",
+      "name": "Late supervisor join learns its leg and disconnects after cancellation",
+      "status": "עבר"
+    }
+  ]
+}
