@@ -1,3 +1,4 @@
+import { assertTenantReferences } from "@/lib/tenant-references";
 import { z } from "zod";
 import { withAuth, parseBody } from "@/lib/api";
 import { ok } from "@/lib/response";
@@ -41,6 +42,7 @@ const createSchema = z.object({
 
 export const POST = withAuth(async ({ req, user }) => {
   const b = await parseBody(req, createSchema);
+  await assertTenantReferences(user.businessId, { userIds: b.agentIds, scriptId: b.scriptId, phoneNumberId: b.phoneNumberId });
   const list = await prisma.dialList.create({
     data: {
       businessId: user.businessId,

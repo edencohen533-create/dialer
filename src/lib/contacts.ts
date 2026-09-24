@@ -1,3 +1,4 @@
+import { assertTenantReferences } from "@/lib/tenant-references";
 import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
@@ -52,6 +53,7 @@ export const contactInputSchema = z.object({
 
 /** Import rows; duplicates (same normalized number) are merged, invalid numbers skipped. */
 export async function importContacts(businessId: string, rows: z.infer<typeof contactInputSchema>[], defaultSource?: string) {
+  await assertTenantReferences(businessId, { userIds: rows.map(r => r.ownerUserId) });
   let created = 0,
     updated = 0,
     invalid = 0;

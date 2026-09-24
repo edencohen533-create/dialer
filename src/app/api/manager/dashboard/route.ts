@@ -1,3 +1,4 @@
+import { businessDayStart } from "@/lib/business-day";
 import { z } from "zod";
 import { withAuth, parseQuery } from "@/lib/api";
 import { ok } from "@/lib/response";
@@ -20,12 +21,12 @@ export const GET = withAuth(async ({ req, user }) => {
   let userIds = visible;
   if (f.userId) userIds = visible && !visible.includes(f.userId) ? ["__none__"] : [f.userId];
 
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
+  const settings = await getBusinessSettings(user.businessId);
+  const startOfToday = businessDayStart(settings.timezone);
   const from = f.from ? new Date(f.from) : startOfToday;
   const to = f.to ? new Date(f.to) : undefined;
 
-  const [agents, metrics, liveCalls, lists, alerts, settings] = await Promise.all([
+  const [agents, metrics, liveCalls, lists, alerts] = await Promise.all([
     prisma.user.findMany({
       where: { businessId: user.businessId, isActive: true, ...(visible ? { id: { in: visible } } : {}) },
       select: { id: true, fullName: true, role: true, presence: true, presenceAt: true, lastSeenAt: true, team: { select: { id: true, name: true } } },
@@ -38,7 +39,6 @@ export const GET = withAuth(async ({ req, user }) => {
     }),
     prisma.dialList.findMany({ where: { businessId: user.businessId, archivedAt: null }, select: { id: true, name: true, isActive: true, isPaused: true }, orderBy: { name: "asc" } }),
     operationalAlerts(user.businessId, visible),
-    getBusinessSettings(user.businessId),
   ]);
   const queues = await Promise.all(lists.filter((l) => l.isActive).map(async (l) => ({ ...l, stats: await listQueueStats(l.id) })));
   const sessions = await prisma.dialerSession.findMany({

@@ -10,6 +10,8 @@ import fs from "node:fs";
 import { PrismaClient } from "../src/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 
+if (process.env.QA_LOCAL !== "1" || new URL(process.env.DATABASE_URL!).hostname !== "127.0.0.1" || process.env.TELEPHONY_PROVIDER !== "mock") throw new Error("Run via scripts/qa-local.cjs: local mock database required");
+
 const BASE = process.env.QA_BASE ?? "http://localhost:3000";
 const url = new URL(process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL!);
 const schema = url.searchParams.get("schema") ?? "public";
@@ -113,12 +115,14 @@ async function endCall(c: Client, callId: string | undefined, outcome = "answere
 }
 
 async function main() {
-  const ids = JSON.parse(fs.readFileSync(process.env.QA_IDS ?? "/private/tmp/claude-501/-Users-edencohen/3881d3d3-c800-4410-a209-a6c33fb41f2b/scratchpad/qa-ids.json", "utf8"));
+  const ids = JSON.parse(fs.readFileSync(process.env.QA_IDS ?? ".qa-local/ids.json", "utf8"));
   const A1 = new Client("agent1"); const A2 = new Client("agent2"); const MA = new Client("managerA"); const ADA = new Client("adminA");
   const B3 = new Client("agent3"); const B4 = new Client("agent4"); const MB = new Client("managerB"); const ADB = new Client("adminB"); const LB = new Client("lonelyB");
   const a1 = await A1.login("agent1@demo.local", "agent123"); await A2.login("agent2@demo.local", "agent123"); await MA.login("manager@demo.local", "manager123"); await ADA.login("admin@demo.local", "admin123");
   const a3 = await B3.login("agent3@qa-b.local", "agent123"); const a4 = await B4.login("agent4@qa-b.local", "agent123"); await MB.login("manager@qa-b.local", "manager123"); await ADB.login("admin@qa-b.local", "admin123"); await LB.login("lonely@qa-b.local", "manager123");
   const bizA = a1.businessId as string; const bizB = a3.businessId as string;
+  // Test suite throughput must not accidentally exercise rate limiting outside N5.
+  for (const id of [bizA, bizB]) { const b = await db.business.findUniqueOrThrow({ where: { id } }); await db.business.update({ where: { id }, data: { settings: { ...(b.settings as any), maxDialsPerMinute: 0, dialWindow: { start: "00:00", end: "23:59", days: [0,1,2,3,4,5,6], timezone: "Asia/Jerusalem" } } } }); }
   const T = { sess3: "tab-3-" + key(), sess4: "tab-4-" + key(), sess1: "tab-1-" + key() };
 
   await Promise.all([cleanupAgent(B3), cleanupAgent(B4), cleanupAgent(A1)]);
@@ -464,6 +468,8 @@ async function main() {
     const tasks = await db.task.count({ where: { callId: call!.id } });
     return { pass: r.status === 200 && after?.outcome === "callback" && after.outcomeNote === longNote.trim() && tasks === before && tasks === 1, actual: `outcome=${after?.outcome}, tasks=${tasks}` };
   });
+  // O8 has already asserted DNC persistence. Remove its fixture before unrelated calls.
+  await db.dncEntry.deleteMany({ where: { businessId: bizB } });
   await t("O10", "תוצאות", "טיוטת הערה נשמרת בשרת ונמחקת אחרי תיעוד", "PUT/GET draft עובדים; אחרי outcome הטיוטה נמחקת", async () => {
     const c = leadsB[0].contactId;
     const p = await B3.put("/api/dialer/draft", { contactId: c, body: "טיוטה 123" });
@@ -707,7 +713,7 @@ async function main() {
   });
 
   // ═══ Telnyx webhooks (signed with local test key) ═════════════════════
-  const keys = JSON.parse(fs.readFileSync("/Users/edencohen/dialer/.qa-keys.json", "utf8"));
+  const keys = JSON.parse(fs.readFileSync(process.env.QA_KEYS ?? ".qa-keys.json", "utf8"));
   const priv = crypto.createPrivateKey(keys.privatePem);
   const sign = (body: string, ts = Math.floor(Date.now() / 1000)) => ({ "telnyx-timestamp": String(ts), "telnyx-signature-ed25519": crypto.sign(null, Buffer.from(`${ts}|${body}`), priv).toString("base64") });
   const hook = (id: string, type: string, callId: string, leg: "agent" | "lead", ccid: string, extra: Record<string, unknown> = {}) =>
@@ -1031,7 +1037,7 @@ async function main() {
     const dupes = claimed.length - new Set(claimed).size;
     lat.sort((a, b) => a - b);
     const p = (q: number) => lat[Math.min(lat.length - 1, Math.floor(lat.length * q))];
-    return { pass: dupes === 0 && errors.length === 0 && claimed.length >= 8, actual: `לידים שנמשכו=${claimed.length} כפולים=${dupes} שגיאות=${errors.length ? errors.join("; ") : 0}; next-lead latency p50=${p(0.5)}ms p95=${p(0.95)}ms (Neon מרחוק)` };
+    return { pass: dupes === 0 && errors.length === 0 && claimed.length >= 8, actual: `לידים שנמשכו=${claimed.length} כפולים=${dupes} שגיאות=${errors.length ? errors.join("; ") : 0}; next-lead latency p50=${p(0.5)}ms p95=${p(0.95)}ms (PostgreSQL מקומי; סימולציה)` };
   });
 
   await t("N19", "ביצועים", "רשימה של 10,000 לידים – הקצאה ועימוד", "next-lead < 3s p95, עמוד לידים < 3s, ללא כפילויות", async () => {
@@ -1221,6 +1227,7 @@ async function main() {
   // ── output ──────────────────────────────────────────────────────────
   const summary = { total: rows.length, passed: rows.filter((r) => r.status === "עבר").length, failed: rows.filter((r) => r.status === "נכשל").length, blocked: rows.filter((r) => r.status === "חסום לבדיקה").length, missing: rows.filter((r) => r.status === "חסר במימוש").length };
   fs.writeFileSync("qa-results-api.json", JSON.stringify({ summary, rows }, null, 2));
+  process.exitCode = summary.failed ? 1 : 0;
   console.log("\nSUMMARY", JSON.stringify(summary));
   for (const r of rows.filter((r) => r.status === "נכשל")) console.log(`  FAILED ${r.id}: ${r.actual}`);
 }

@@ -137,8 +137,10 @@ export async function stopMonitor(user: SessionUser, monitorId: string) {
   if (m.legId) {
     try {
       await telephony.hangupLeg(m.legId, `${m.id}-hangup-supervisor`); // only the supervisor leg – agent and customer stay connected
-    } catch (err) {
-      console.error("[monitor] hangup supervisor leg failed", err);
+    } catch {
+      // Keep the active record so the manager can retry; a provider failure
+      // does not prove that the supervisor audio leg was disconnected.
+      throw new ApiError("ניתוק ההאזנה לא אושר על ידי ספק הטלפוניה. יש לנסות שוב.", 502, "monitor_disconnect_failed");
     }
   }
   await markMonitorEnded(m.id, "manager_left");

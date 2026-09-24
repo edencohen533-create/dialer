@@ -8,8 +8,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 
+if (process.env.QA_LOCAL !== "1" || process.env.TELEPHONY_PROVIDER !== "mock") throw new Error("Run via scripts/qa-local.cjs");
 const BASE = process.env.QA_BASE ?? "http://localhost:3000";
-const SHOTS = process.env.QA_SHOTS ?? "/private/tmp/claude-501/-Users-edencohen/3881d3d3-c800-4410-a209-a6c33fb41f2b/scratchpad/shots";
+const SHOTS = process.env.QA_SHOTS ?? ".qa-local/shots";
 fs.mkdirSync(SHOTS, { recursive: true });
 
 type Status = "עבר" | "נכשל" | "חסום לבדיקה";
@@ -510,18 +511,28 @@ async function main() {
     const backToListen = await mpage.getByText("האזנה בלבד").isVisible();
     // second listen click while connected → same panel, no second monitor
     const monitorsBefore = (await apiJson(mpage, "/api/manager/monitor")).data?.id;
+    await mpage.route("**/api/manager/monitor/*", async route => {
+      if (route.request().method() === "DELETE") await route.fulfill({status:502,contentType:"application/json",body:JSON.stringify({error:"ניתוק ההאזנה נכשל בבדיקת QA",code:"monitor_disconnect_failed"})});
+      else await route.continue();
+    });
+    await mpage.locator("aside footer").getByRole("button", { name: "יציאה מהאזנה" }).click();
+    await mpage.getByText("ניתוק ההאזנה נכשל בבדיקת QA").waitFor();
+    const failedExitRetained = await mpage.getByText("האזנה לשיחה").isVisible();
+    await mpage.screenshot({path:path.join(SHOTS,"U20-disconnect-failure.png")});
+    await mpage.unroute("**/api/manager/monitor/*");
     await mpage.locator("aside footer").getByRole("button", { name: "יציאה מהאזנה" }).click();
     await sleep(1500);
     const agentCall = (await apiJson(page, "/api/dialer/state")).data.activeCall;
     const monitorAfter = (await apiJson(mpage, "/api/manager/monitor")).data;
     await mctx.close();
     await endAnyCall(page);
-    return { pass: lagMs < 5000 && Boolean(rowText?.includes("4533")) && connecting !== null && Boolean(whisperAudit) && backToListen && Boolean(monitorsBefore) && agentCall && !agentCall.endedAt && monitorAfter === null, actual: `אירוע-הוחל→שורה 'בשיחה' ${lagMs}ms (כולל poll 1.5s + זמן בקשה מקומי); מחותמת הספק ${lagFromProvider}ms; row="${rowText?.slice(0, 60)}"; whisper audit=${Boolean(whisperAudit)}; blur→listen=${backToListen}; agent call alive after exit=${Boolean(agentCall && !agentCall.endedAt)}; monitor cleared=${monitorAfter === null}` };
+    return { pass: failedExitRetained && lagMs < 5000 && Boolean(rowText?.includes("4533")) && connecting !== null && Boolean(whisperAudit) && backToListen && Boolean(monitorsBefore) && agentCall && !agentCall.endedAt && monitorAfter === null, actual: `failed disconnect retained panel=${failedExitRetained}; אירוע-הוחל→שורה 'בשיחה' ${lagMs}ms (כולל poll 1.5s + זמן בקשה מקומי); מחותמת הספק ${lagFromProvider}ms; row="${rowText?.slice(0, 60)}"; whisper audit=${Boolean(whisperAudit)}; blur→listen=${backToListen}; agent call alive after exit=${Boolean(agentCall && !agentCall.endedAt)}; monitor cleared=${monitorAfter === null}` };
   }, P);
   await ctx.close();
   await browser.close();
   const summary = { total: rows.length, passed: rows.filter((r) => r.status === "עבר").length, failed: rows.filter((r) => r.status === "נכשל").length };
   fs.writeFileSync(ONLY.length ? "qa-results-ui-subset.json" : "qa-results-ui.json", JSON.stringify({ summary, rows }, null, 2));
+  process.exitCode = summary.failed ? 1 : 0;
   console.log("\nSUMMARY", JSON.stringify(summary));
 }
 

@@ -85,7 +85,7 @@ export function LeadCard({
     } catch {
       /* ignore */
     }
-    const t = setTimeout(() => api.put("/api/dialer/draft", { contactId, body: noteValue }).catch(() => undefined), 1200);
+    const t = setTimeout(() => api.put("/api/dialer/draft", { contactId, body: noteValue }).catch(() => toast.error("שמירת הטיוטה בשרת נכשלה; ההערה נשמרה בדפדפן הזה", { id: "draft-save-failed" })), 1200);
     return () => clearTimeout(t);
   }, [contactId, noteValue]);
 

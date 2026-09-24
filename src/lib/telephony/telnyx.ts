@@ -264,6 +264,7 @@ interface TelnyxWebhook {
       from?: string;
       to?: string;
       result?: string;
+      recording_id?: string;
       recording_started_at?: string;
       recording_ended_at?: string;
       state?: string;
@@ -306,6 +307,7 @@ export function parseTelnyxWebhook(body: TelnyxWebhook): ProviderEvent | null {
     hangupCause: p.hangup_cause,
     hangupSource: p.hangup_source,
     amdResult: p.result,
+    recordingId: p.recording_id,
     recordingDurationMs,
     raw: body,
   };

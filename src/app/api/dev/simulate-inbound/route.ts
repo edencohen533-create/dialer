@@ -13,6 +13,8 @@ export const POST = withAuth(async ({ req, user }) => {
   const b = await parseBody(req, z.object({ from: z.string().min(3), to: z.string().optional() }));
   const to = b.to ?? (await prisma.phoneNumber.findFirst({ where: { businessId: user.businessId, isActive: true, isDefault: true } }))?.e164;
   if (!to) throw new ApiError("לעסק אין מספר", 400, "no_number");
+  const ownNumber = await prisma.phoneNumber.findFirst({ where: { businessId: user.businessId, e164: to, isActive: true } });
+  if (!ownNumber) throw new ApiError("המספר אינו שייך לעסק", 400, "invalid_from_number");
   const legId = `mock-inbound-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const r = await processProviderEvent({
     provider: "mock",

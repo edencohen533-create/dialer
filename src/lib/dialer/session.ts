@@ -2,6 +2,8 @@
  * Dialer sessions: one live session per agent, owned by a single browser tab.
  * Heartbeats renew the lead lock and keep presence accurate.
  */
+import { lockAgent } from "./locking";
+import type { Prisma } from "@/generated/prisma/client";
 import type { DialMode } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/db";
 import { ApiError } from "@/lib/response";
@@ -32,11 +34,14 @@ export async function startSession(user: SessionUser, input: { mode: DialMode; l
   const settings = await getBusinessSettings(user.businessId);
   const countdown = Math.min(60, Math.max(0, input.countdownSeconds ?? settings.autoDialCountdownSeconds));
 
-  // A superseded session must not keep a lead locked (list switch / new tab).
-  const held = await currentLockedLead(user.id);
-  if (held && held.status === "locked") await releaseLead(user.id, held.id, "session_superseded");
-
   return prisma.$transaction(async (tx) => {
+    await lockAgent(tx, user.id);
+    const live = await tx.call.findUnique({ where: { activeForUser: user.id }, select: { id: true } });
+    if (live) throw new ApiError("יש שיחה פעילה", 409, "call_active");
+    const pending = await tx.call.findFirst({ where: { userId: user.id, endedAt: { not: null }, outcomeSavedAt: null }, select: { id: true } });
+    if (pending) throw new ApiError("יש לתעד את השיחה הקודמת", 409, "outcome_required");
+    const held = await currentLockedLead(user.id, tx);
+    if (held && held.status === "locked") await releaseLead(user.id, held.id, "session_superseded", tx);
     // A new session (possibly from another tab) supersedes any previous one.
     await tx.dialerSession.updateMany({ where: { userId: user.id, status: { in: ["active", "paused"] } }, data: { status: "ended", endedAt: new Date() } });
     const s = await tx.dialerSession.create({
@@ -51,13 +56,13 @@ export async function startSession(user: SessionUser, input: { mode: DialMode; l
       include: { list: { select: { id: true, name: true, scriptId: true } } },
     });
     await tx.user.update({ where: { id: user.id }, data: { presence: "available", presenceAt: new Date(), lastSeenAt: new Date() } });
-    await audit(user.businessId, user.id, "session", s.id, "session.started", { mode: input.mode, listId: input.listId });
+    await audit(user.businessId, user.id, "session", s.id, "session.started", { mode: input.mode, listId: input.listId }, tx);
     return s;
   });
 }
 
-async function ownedSession(user: SessionUser, sessionId: string, browserSessionId: string) {
-  const s = await prisma.dialerSession.findFirst({ where: { id: sessionId, userId: user.id } });
+async function ownedSession(user: SessionUser, sessionId: string, browserSessionId: string, db: Prisma.TransactionClient = prisma) {
+  const s = await db.dialerSession.findFirst({ where: { id: sessionId, userId: user.id } });
   if (!s) throw new ApiError("סשן לא נמצא", 404, "not_found");
   if (s.status === "ended") throw new ApiError("הסשן הסתיים", 409, "session_ended");
   if (s.browserSessionId !== browserSessionId) throw new ApiError("החיוג פעיל בלשונית אחרת", 409, "session_taken");
@@ -65,26 +70,35 @@ async function ownedSession(user: SessionUser, sessionId: string, browserSession
 }
 
 export async function pauseSession(user: SessionUser, sessionId: string, browserSessionId: string) {
-  await ownedSession(user, sessionId, browserSessionId);
-  await prisma.dialerSession.update({ where: { id: sessionId }, data: { status: "paused" } });
-  await prisma.user.updateMany({ where: { id: user.id, presence: { in: ["available"] } }, data: { presence: "paused", presenceAt: new Date() } });
+  return prisma.$transaction(async (tx) => {
+    await lockAgent(tx, user.id);
+    await ownedSession(user, sessionId, browserSessionId, tx);
+    await tx.dialerSession.update({ where: { id: sessionId }, data: { status: "paused" } });
+    await tx.user.updateMany({ where: { id: user.id, presence: { in: ["available"] } }, data: { presence: "paused", presenceAt: new Date() } });
+  });
 }
 
 export async function resumeSession(user: SessionUser, sessionId: string, browserSessionId: string) {
-  await ownedSession(user, sessionId, browserSessionId);
-  await prisma.dialerSession.update({ where: { id: sessionId }, data: { status: "active" } });
-  await prisma.user.updateMany({ where: { id: user.id, presence: "paused" }, data: { presence: "available", presenceAt: new Date() } });
+  return prisma.$transaction(async (tx) => {
+    await lockAgent(tx, user.id);
+    await ownedSession(user, sessionId, browserSessionId, tx);
+    await tx.dialerSession.update({ where: { id: sessionId }, data: { status: "active" } });
+    await tx.user.updateMany({ where: { id: user.id, presence: "paused" }, data: { presence: "available", presenceAt: new Date() } });
+  });
 }
 
 export async function endSession(user: SessionUser, sessionId: string, browserSessionId: string) {
-  const s = await ownedSession(user, sessionId, browserSessionId);
-  const live = await prisma.call.findUnique({ where: { activeForUser: user.id }, select: { id: true } });
-  if (live) throw new ApiError("יש שיחה פעילה – נתק לפני סיום הסשן", 409, "call_active", { callId: live.id });
-  const lead = await currentLockedLead(user.id);
-  if (lead && lead.status === "locked") await releaseLead(user.id, lead.id, "session_ended");
-  await prisma.dialerSession.update({ where: { id: s.id }, data: { status: "ended", endedAt: new Date() } });
-  await prisma.user.update({ where: { id: user.id }, data: { presence: "offline", presenceAt: new Date() } });
-  await audit(user.businessId, user.id, "session", s.id, "session.ended");
+  return prisma.$transaction(async (tx) => {
+    await lockAgent(tx, user.id);
+    const s = await ownedSession(user, sessionId, browserSessionId, tx);
+    const live = await tx.call.findUnique({ where: { activeForUser: user.id }, select: { id: true } });
+    if (live) throw new ApiError("יש שיחה פעילה – נתק לפני סיום הסשן", 409, "call_active", { callId: live.id });
+    const lead = await currentLockedLead(user.id, tx);
+    if (lead && lead.status === "locked") await releaseLead(user.id, lead.id, "session_ended", tx);
+    await tx.dialerSession.update({ where: { id: s.id }, data: { status: "ended", endedAt: new Date() } });
+    await tx.user.update({ where: { id: user.id }, data: { presence: "offline", presenceAt: new Date() } });
+    await audit(user.businessId, user.id, "session", s.id, "session.ended", undefined, tx);
+  });
 }
 
 /** Called every HEARTBEAT_INTERVAL_MS by the owning tab. */

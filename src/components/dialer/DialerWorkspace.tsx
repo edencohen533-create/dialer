@@ -27,7 +27,7 @@ export function DialerWorkspace() {
   const wrapUp = state?.wrapUpCall ?? null;
   const focusContactId = call?.contactId ?? wrapUp?.contactId ?? lead?.contactId ?? null;
   const previewMode = session?.mode === "preview";
-  const canDialLead = Boolean(lead && lead.status === "locked" && !call && !wrapUp && !sessionTakenOver);
+  const canDialLead = Boolean(lead && lead.status === "locked" && !call && !wrapUp && !sessionTakenOver && session?.status === "active");
 
   useEffect(() => {
     setRefreshKey((k) => k + 1);

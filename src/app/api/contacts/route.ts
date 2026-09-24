@@ -1,3 +1,4 @@
+import { assertTenantReferences } from "@/lib/tenant-references";
 import { z } from "zod";
 import { withAuth, parseBody, parseQuery } from "@/lib/api";
 import { ok, ApiError } from "@/lib/response";
@@ -41,6 +42,7 @@ export const GET = withAuth(async ({ req, user }) => {
 
 export const POST = withAuth(async ({ req, user }) => {
   const b = await parseBody(req, contactInputSchema);
+  await assertTenantReferences(user.businessId, { userIds: [b.ownerUserId] });
   const e164 = normalizePhone(b.phone);
   if (!e164) throw new ApiError("מספר טלפון לא תקין", 400, "invalid_phone");
   const exists = await prisma.contact.findUnique({ where: { businessId_phoneE164: { businessId: user.businessId, phoneE164: e164 } } });

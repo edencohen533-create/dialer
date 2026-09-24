@@ -1,3 +1,4 @@
+import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 
 export interface DialWindow {
@@ -121,8 +122,8 @@ export function mergeSettings(raw: unknown): BusinessSettings {
   };
 }
 
-export async function getBusinessSettings(businessId: string): Promise<BusinessSettings & { timezone: string }> {
-  const b = await prisma.business.findUnique({ where: { id: businessId }, select: { settings: true, timezone: true } });
+export async function getBusinessSettings(businessId: string, db: Prisma.TransactionClient = prisma): Promise<BusinessSettings & { timezone: string }> {
+  const b = await db.business.findUnique({ where: { id: businessId }, select: { settings: true, timezone: true } });
   const s = mergeSettings(b?.settings);
   return { ...s, timezone: b?.timezone ?? "Asia/Jerusalem", dialWindow: { ...s.dialWindow, timezone: s.dialWindow.timezone ?? b?.timezone } };
 }

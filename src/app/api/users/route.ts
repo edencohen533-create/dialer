@@ -1,3 +1,4 @@
+import { assertTenantReferences } from "@/lib/tenant-references";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { withAuth, parseBody } from "@/lib/api";
@@ -28,6 +29,7 @@ const schema = z.object({
 
 export const POST = withAuth(async ({ req, user }) => {
   const b = await parseBody(req, schema);
+  await assertTenantReferences(user.businessId, { teamId: b.teamId });
   const email = b.email.toLowerCase().trim();
   const exists = await prisma.user.findUnique({ where: { businessId_email: { businessId: user.businessId, email } } });
   if (exists) throw new ApiError("אימייל זה כבר קיים", 409, "duplicate_email");

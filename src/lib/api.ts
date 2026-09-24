@@ -9,7 +9,7 @@ type Handler = (ctx: { req: NextRequest; user: SessionUser; params: Params }) =>
 
 /** Wrap a route handler with auth, role check and uniform error handling. */
 export function withAuth(handler: Handler, opts: { minRole?: UserRole } = {}) {
-  return async (req: NextRequest, ctx?: { params?: Promise<Params> | Params }) => {
+  return async (req: NextRequest, ctx: { params: Promise<Params> }) => {
     try {
       const user = await requireUser(req);
       if (opts.minRole) requireRole(user, opts.minRole);

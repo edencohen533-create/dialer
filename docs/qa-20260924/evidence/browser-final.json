@@ -1,0 +1,59 @@
+{
+  "at": "2026-09-24T01:41:55.181Z",
+  "mode": "real Chromium; local mock telephony; network failures injected",
+  "rows": [
+    {
+      "id": "B1",
+      "name": "Reload during a call retains the same call and does not dial again",
+      "status": "עבר",
+      "detail": {
+        "callCount": 1
+      }
+    },
+    {
+      "id": "B2",
+      "name": "Offline manager marks data stale; reconnect catches the ended call",
+      "status": "עבר",
+      "detail": {
+        "reconnectToCurrentStateMs": 1288
+      }
+    },
+    {
+      "id": "B6",
+      "name": "Draft save failure is visible and local note survives reload",
+      "status": "עבר",
+      "detail": {
+        "errorVisible": true,
+        "localDraftRetained": true
+      }
+    },
+    {
+      "id": "B3",
+      "name": "Failed outcome save keeps note and wrap-up; retry persists exactly once",
+      "status": "עבר",
+      "detail": {
+        "persistedNote": true
+      }
+    },
+    {
+      "id": "B4",
+      "name": "Desktop Hebrew layout fits 1366px and navigation does not multiply polling",
+      "status": "עבר",
+      "detail": {
+        "pollsIn13Seconds": 2,
+        "width": 1366,
+        "scroll": 1366,
+        "dir": "rtl"
+      }
+    },
+    {
+      "id": "B5",
+      "name": "Browser without a session returns to login",
+      "status": "עבר",
+      "detail": {
+        "redirected": true
+      }
+    }
+  ],
+  "consoleErrors": []
+}

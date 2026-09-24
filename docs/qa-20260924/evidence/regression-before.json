@@ -1,0 +1,95 @@
+{
+  "at": "2026-09-24T01:16:42.961Z",
+  "rows": [
+    {
+      "id": "R1",
+      "name": "Paused session cannot dial a held lead",
+      "status": "נכשל",
+      "detail": "{\"status\":200,\"success\":true,\"data\":{\"id\":\"cmueucwn100jjlrejh23s8f84\",\"businessId\":\"cmueucwbc0000siej0n5spa26\",\"userId\":\"cmueucwc80002siejee6cf58k\",\"sessionId\":\"cmueucwl400jglrejtv2phwgp\",\"listId\":\"cmueucwdn0007siej63r03nzv\",\"leadId\":\"cmueucwdw0009siejfzlgjuy4\",\"contactId\":\"cmueucwdq0008siej043324lw\",\"mode\":\"preview\",\"direction\":\"outbound\",\"provider\":\"mock\",\"idempotencyKey\":\"1b1d6c20-aea6-4636-a6ce-7671b9978706\",\"routingNote\":null,\"conferenceId\":null,\"activeForUser\":\"cmueucwc80002siejee6cf58k\",\"toE164\":\"+972529990000\",\"fromE164\":\"+97239990001\",\"phoneNumberId\":\"cmueucwdj0005siej28tbi5hs\",\"status\":\"dialing_agent\",\"telephonyResult\":null,\"hangupCause\":null,\"hangupSource\":null,\"amdResult\":null,\"failureReason\":null,\"agentLegId\":\"mock-agent-cmueucwn100jjlrejh23s8f84\",\"leadLegId\":null,\"providerSessionId\":\"mock-session-cmueucwn100jjlrejh23s8f84\",\"dialPendingSince\":null,\"leadDialedAt\":null,\"hangupRequestedAt\":null,\"lastEventAt\":null,\"createdAt\":\"2026-09-24T01:16:37.309Z\",\"agentAnsweredAt\":null,\"ringingAt\":null,\"answeredAt\":null,\"endedAt\":null,\"talkSeconds\":null,\"outcome\":null,\"outcomeNote\":null,\"outcomeSavedAt\":null,\"callbackAt\":null,\"recordingStatus\":\"none\",\"recordingId\":null,\"recordingDurationMs\":null,\"recordingFormat\":null,\"contact\":{\"id\":\"cmueucwdq0008siej043324lw\",\"fullName\":\"QA lead 0\",\"phoneE164\":\"+972529990000\",\"company\":null},\"lead\":{\"id\":\"cmueucwdw0009siejfzlgjuy4\",\"listId\":\"cmueucwdn0007siej63r03nzv\",\"lockToken\":\"49b14ad7-9b73-456e-bece-a86dc2958a13\",\"attempts\":1,\"status\":\"in_call\"},\"phoneNumber\":{\"id\":\"cmueucwdj0005siej28tbi5hs\",\"e164\":\"+97239990001\",\"label\":null}}}\n\n200 !== 409\n"
+    },
+    {
+      "id": "R2",
+      "name": "Power call requires session and lead",
+      "status": "נכשל",
+      "detail": "{\"status\":200,\"success\":true,\"data\":{\"id\":\"cmueucwnk00jllrejhsr424dm\",\"businessId\":\"cmueucwbc0000siej0n5spa26\",\"userId\":\"cmueucwc80002siejee6cf58k\",\"sessionId\":null,\"listId\":null,\"leadId\":null,\"contactId\":\"cmueucwe4000esiejsw325j46\",\"mode\":\"power\",\"direction\":\"outbound\",\"provider\":\"mock\",\"idempotencyKey\":\"3ef885a1-6d6b-4137-ac01-4ef98eac71e4\",\"routingNote\":null,\"conferenceId\":null,\"activeForUser\":\"cmueucwc80002siejee6cf58k\",\"toE164\":\"+972529990003\",\"fromE164\":\"+97239990001\",\"phoneNumberId\":\"cmueucwdj0005siej28tbi5hs\",\"status\":\"dialing_agent\",\"telephonyResult\":null,\"hangupCause\":null,\"hangupSource\":null,\"amdResult\":null,\"failureReason\":null,\"agentLegId\":\"mock-agent-cmueucwnk00jllrejhsr424dm\",\"leadLegId\":null,\"providerSessionId\":\"mock-session-cmueucwnk00jllrejhsr424dm\",\"dialPendingSince\":null,\"leadDialedAt\":null,\"hangupRequestedAt\":null,\"lastEventAt\":null,\"createdAt\":\"2026-09-24T01:16:37.328Z\",\"agentAnsweredAt\":null,\"ringingAt\":null,\"answeredAt\":null,\"endedAt\":null,\"talkSeconds\":null,\"outcome\":null,\"outcomeNote\":null,\"outcomeSavedAt\":null,\"callbackAt\":null,\"recordingStatus\":\"none\",\"recordingId\":null,\"recordingDurationMs\":null,\"recordingFormat\":null,\"contact\":{\"id\":\"cmueucwe4000esiejsw325j46\",\"fullName\":\"QA lead 3\",\"phoneE164\":\"+972529990003\",\"company\":null},\"lead\":null,\"phoneNumber\":{\"id\":\"cmueucwdj0005siej28tbi5hs\",\"e164\":\"+97239990001\",\"label\":null}}}\n\n200 !== 409\n"
+    },
+    {
+      "id": "R3",
+      "name": "Session ownership cannot be omitted",
+      "status": "נכשל",
+      "detail": "{\"status\":200,\"success\":true,\"data\":{\"id\":\"cmueucwou00jplrej1f4bcp49\",\"businessId\":\"cmueucwbc0000siej0n5spa26\",\"userId\":\"cmueucwc80002siejee6cf58k\",\"sessionId\":\"cmueucwny00jnlrejxumygwr9\",\"listId\":null,\"leadId\":null,\"contactId\":\"cmueucwe4000esiejsw325j46\",\"mode\":\"manual\",\"direction\":\"outbound\",\"provider\":\"mock\",\"idempotencyKey\":\"fa488009-0e2e-45a7-891a-e2c064530056\",\"routingNote\":null,\"conferenceId\":null,\"activeForUser\":\"cmueucwc80002siejee6cf58k\",\"toE164\":\"+972529990003\",\"fromE164\":\"+97239990001\",\"phoneNumberId\":\"cmueucwdj0005siej28tbi5hs\",\"status\":\"dialing_agent\",\"telephonyResult\":null,\"hangupCause\":null,\"hangupSource\":null,\"amdResult\":null,\"failureReason\":null,\"agentLegId\":\"mock-agent-cmueucwou00jplrej1f4bcp49\",\"leadLegId\":null,\"providerSessionId\":\"mock-session-cmueucwou00jplrej1f4bcp49\",\"dialPendingSince\":null,\"leadDialedAt\":null,\"hangupRequestedAt\":null,\"lastEventAt\":null,\"createdAt\":\"2026-09-24T01:16:37.374Z\",\"agentAnsweredAt\":null,\"ringingAt\":null,\"answeredAt\":null,\"endedAt\":null,\"talkSeconds\":null,\"outcome\":null,\"outcomeNote\":null,\"outcomeSavedAt\":null,\"callbackAt\":null,\"recordingStatus\":\"none\",\"recordingId\":null,\"recordingDurationMs\":null,\"recordingFormat\":null,\"contact\":{\"id\":\"cmueucwe4000esiejsw325j46\",\"fullName\":\"QA lead 3\",\"phoneE164\":\"+972529990003\",\"company\":null},\"lead\":null,\"phoneNumber\":{\"id\":\"cmueucwdj0005siej28tbi5hs\",\"e164\":\"+97239990001\",\"label\":null}}}\n\n200 !== 409\n"
+    },
+    {
+      "id": "R4",
+      "name": "Manager-paused list prevents dialing an already held lead",
+      "status": "נכשל",
+      "detail": "{\"status\":200,\"success\":true,\"data\":{\"id\":\"cmueucwpy00julrejsw1fp2ia\",\"businessId\":\"cmueucwbc0000siej0n5spa26\",\"userId\":\"cmueucwc80002siejee6cf58k\",\"sessionId\":\"cmueucwpa00jrlrej5neu9ion\",\"listId\":\"cmueucwdn0007siej63r03nzv\",\"leadId\":\"cmueucwe2000bsiej7tokvrxq\",\"contactId\":\"cmueucwe1000asiej000to2xm\",\"mode\":\"preview\",\"direction\":\"outbound\",\"provider\":\"mock\",\"idempotencyKey\":\"2cd91146-9a29-4918-8cf2-230ca029f5e6\",\"routingNote\":null,\"conferenceId\":null,\"activeForUser\":\"cmueucwc80002siejee6cf58k\",\"toE164\":\"+972529990001\",\"fromE164\":\"+97239990001\",\"phoneNumberId\":\"cmueucwdj0005siej28tbi5hs\",\"status\":\"dialing_agent\",\"telephonyResult\":null,\"hangupCause\":null,\"hangupSource\":null,\"amdResult\":null,\"failureReason\":null,\"agentLegId\":\"mock-agent-cmueucwpy00julrejsw1fp2ia\",\"leadLegId\":null,\"providerSessionId\":\"mock-session-cmueucwpy00julrejsw1fp2ia\",\"dialPendingSince\":null,\"leadDialedAt\":null,\"hangupRequestedAt\":null,\"lastEventAt\":null,\"createdAt\":\"2026-09-24T01:16:37.414Z\",\"agentAnsweredAt\":null,\"ringingAt\":null,\"answeredAt\":null,\"endedAt\":null,\"talkSeconds\":null,\"outcome\":null,\"outcomeNote\":null,\"outcomeSavedAt\":null,\"callbackAt\":null,\"recordingStatus\":\"none\",\"recordingId\":null,\"recordingDurationMs\":null,\"recordingFormat\":null,\"contact\":{\"id\":\"cmueucwe1000asiej000to2xm\",\"fullName\":\"QA lead 1\",\"phoneE164\":\"+972529990001\",\"company\":null},\"lead\":{\"id\":\"cmueucwe2000bsiej7tokvrxq\",\"listId\":\"cmueucwdn0007siej63r03nzv\",\"lockToken\":\"66e6eca5-902e-4e57-a4da-8385d4e75048\",\"attempts\":1,\"status\":\"in_call\"},\"phoneNumber\":{\"id\":\"cmueucwdj0005siej28tbi5hs\",\"e164\":\"+97239990001\",\"label\":null}}}\n\n200 !== 409\n"
+    },
+    {
+      "id": "R5",
+      "name": "Wrap-up blocks a new manual call",
+      "status": "נכשל",
+      "detail": "{\"status\":200,\"success\":true,\"data\":{\"id\":\"cmueucwqs00jylrej8yohge0w\",\"businessId\":\"cmueucwbc0000siej0n5spa26\",\"userId\":\"cmueucwc80002siejee6cf58k\",\"sessionId\":null,\"listId\":null,\"leadId\":null,\"contactId\":\"cmueucwe4000gsiejh5xyzngm\",\"mode\":\"manual\",\"direction\":\"outbound\",\"provider\":\"mock\",\"idempotencyKey\":\"edcf8bdb-5b22-4428-a25c-d2efbcb33ba5\",\"routingNote\":null,\"conferenceId\":null,\"activeForUser\":\"cmueucwc80002siejee6cf58k\",\"toE164\":\"+972529990004\",\"fromE164\":\"+97239990001\",\"phoneNumberId\":\"cmueucwdj0005siej28tbi5hs\",\"status\":\"dialing_agent\",\"telephonyResult\":null,\"hangupCause\":null,\"hangupSource\":null,\"amdResult\":null,\"failureReason\":null,\"agentLegId\":\"mock-agent-cmueucwqs00jylrej8yohge0w\",\"leadLegId\":null,\"providerSessionId\":\"mock-session-cmueucwqs00jylrej8yohge0w\",\"dialPendingSince\":null,\"leadDialedAt\":null,\"hangupRequestedAt\":null,\"lastEventAt\":null,\"createdAt\":\"2026-09-24T01:16:37.444Z\",\"agentAnsweredAt\":null,\"ringingAt\":null,\"answeredAt\":null,\"endedAt\":null,\"talkSeconds\":null,\"outcome\":null,\"outcomeNote\":null,\"outcomeSavedAt\":null,\"callbackAt\":null,\"recordingStatus\":\"none\",\"recordingId\":null,\"recordingDurationMs\":null,\"recordingFormat\":null,\"contact\":{\"id\":\"cmueucwe4000gsiejh5xyzngm\",\"fullName\":\"QA lead 4\",\"phoneE164\":\"+972529990004\",\"company\":null},\"lead\":null,\"phoneNumber\":{\"id\":\"cmueucwdj0005siej28tbi5hs\",\"e164\":\"+97239990001\",\"label\":null}}}\n\n200 !== 409\n"
+    },
+    {
+      "id": "R6",
+      "name": "Concurrent agents cannot call the same normalized number",
+      "status": "נכשל",
+      "detail": "[{\"status\":200},{\"status\":200}]\n\n2 !== 1\n"
+    },
+    {
+      "id": "R7",
+      "name": "Concurrent next-lead requests hold at most one lead per agent",
+      "status": "נכשל",
+      "detail": "Expected values to be strictly equal:\n\n2 !== 1\n"
+    },
+    {
+      "id": "R8",
+      "name": "Concurrent callback saves create one task",
+      "status": "נכשל",
+      "detail": "Expected values to be strictly equal:\n\n4 !== 1\n"
+    },
+    {
+      "id": "R9",
+      "name": "Reject cross-tenant contact owner before write",
+      "status": "נכשל",
+      "detail": "Expected values to be strictly equal:\n\n201 !== 400\n"
+    },
+    {
+      "id": "R10",
+      "name": "Reject cross-tenant list relations before write",
+      "status": "נכשל",
+      "detail": "Expected values to be strictly equal:\n\n201 !== 400\n"
+    },
+    {
+      "id": "R11",
+      "name": "Rejected list patch leaves caller ID unchanged",
+      "status": "נכשל",
+      "detail": "Expected values to be strictly equal:\n+ actual - expected\n\n+ 'cmueucwhn000tsiejgnpr4oj5'\n- null"
+    },
+    {
+      "id": "R12",
+      "name": "Reject cross-tenant user team",
+      "status": "נכשל",
+      "detail": "Expected values to be strictly equal:\n\n200 !== 400\n"
+    },
+    {
+      "id": "R13",
+      "name": "Simulation endpoint cannot route into another tenant",
+      "status": "נכשל",
+      "detail": "Expected values to be strictly equal:\n\n200 !== 400\n"
+    },
+    {
+      "id": "R14",
+      "name": "Recording webhook retains provider recording ID",
+      "status": "נכשל",
+      "detail": "Expected values to be strictly equal:\n+ actual - expected\n\n+ null\n- 'qa-recording-id'"
+    },
+    {
+      "id": "R15",
+      "name": "Concurrent session starts leave one live session",
+      "status": "נכשל",
+      "detail": "false == true"
+    }
+  ]
+}

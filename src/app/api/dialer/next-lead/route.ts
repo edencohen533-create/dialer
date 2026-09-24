@@ -18,7 +18,7 @@ export const POST = withAuth(async ({ req, user }) => {
   if (!s.listId) throw new ApiError("לסשן ידני אין תור לידים", 400, "manual_session");
   const live = await prisma.call.findUnique({ where: { activeForUser: user.id }, select: { id: true } });
   if (live) throw new ApiError("יש שיחה פעילה", 409, "call_active", { callId: live.id });
-  const pending = await prisma.call.findFirst({ where: { userId: user.id, endedAt: { not: null }, outcomeSavedAt: null, leadId: { not: null }, createdAt: { gte: new Date(Date.now() - 6 * 3600_000) } }, select: { id: true } });
+  const pending = await prisma.call.findFirst({ where: { userId: user.id, endedAt: { not: null }, outcomeSavedAt: null }, select: { id: true } });
   if (pending) throw new ApiError("יש שיחה שטרם תועדה – שמור תוצאה לפני המעבר לליד הבא", 409, "outcome_required", { callId: pending.id });
   await assertListAccess(user.businessId, user.id, user.role, s.listId);
   const lead = await claimNextLead(user.businessId, user.id, s.listId);

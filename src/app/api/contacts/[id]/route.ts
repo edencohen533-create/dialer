@@ -1,3 +1,4 @@
+import { assertTenantReferences } from "@/lib/tenant-references";
 import { z } from "zod";
 import { withAuth, parseBody } from "@/lib/api";
 import { ok, ApiError } from "@/lib/response";
@@ -9,18 +10,18 @@ export const dynamic = "force-dynamic";
 
 /** Contact card: details + call history + open tasks + list memberships. Call history respects team visibility. */
 export const GET = withAuth(async ({ user, params }) => {
+  const ids = await visibleUserIds(user);
   const c = await prisma.contact.findFirst({
     where: { id: params.id, businessId: user.businessId },
     include: {
       owner: { select: { id: true, fullName: true } },
       leads: { include: { list: { select: { id: true, name: true } } } },
-      tasks: { where: { status: "open" }, orderBy: { dueAt: "asc" }, include: { user: { select: { id: true, fullName: true } } } },
+      tasks: { where: { status: "open", businessId: user.businessId, ...(ids ? { userId: { in: ids } } : {}) }, orderBy: { dueAt: "asc" }, include: { user: { select: { id: true, fullName: true } } } },
     },
   });
   if (!c) throw new ApiError("איש קשר לא נמצא", 404, "not_found");
-  const ids = await visibleUserIds(user);
   const calls = await prisma.call.findMany({
-    where: { contactId: c.id, ...(ids ? { userId: { in: ids } } : {}) },
+    where: { contactId: c.id, businessId: user.businessId, ...(ids ? { userId: { in: ids } } : {}) },
     orderBy: { createdAt: "desc" },
     take: 50,
     select: {
@@ -54,6 +55,7 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
     const called = await prisma.call.findFirst({ where: { contactId: c.id, userId: user.id } });
     if (!held && !called) throw new ApiError("אין הרשאה לערוך איש קשר זה", 403, "forbidden");
   }
+  if (user.role !== "agent") await assertTenantReferences(user.businessId, { userIds: [b.ownerUserId] });
   const data: Record<string, unknown> = {};
   if (b.fullName !== undefined) data.fullName = b.fullName.trim();
   if (b.email !== undefined) data.email = b.email || null;
