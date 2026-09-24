@@ -1,0 +1,26 @@
+PASS NUM1 Agent cannot manage numbers and another tenant cannot mutate them
+PASS NUM2 Configuration alone never claims verified connection; no credentials in response
+PASS NUM3 Three parallel reservations use three numbers and respect concurrent cap
+PASS NUM4 Lead retains its prior caller ID
+PASS NUM5 Paused, inactive and daily exhausted numbers are skipped
+PASS NUM6 Fixed campaign cannot silently replace an unavailable number
+PASS NUM7 Agent-specific policy and load policy choose eligible assignments
+PASS NUM8 Spam-marked prior number blocks automatic replacement for that lead
+PASS NUM9 DNC applies across all outbound numbers
+PASS NUM10 No verified ownership or stale verification cannot place a real call
+PASS NUM11 Outbound pause preserves callback routing to the previous agent
+PASS NUM12 Purchase requires explicit admin confirmation
+PASS NUM13 Concurrent purchase clicks charge once; ambiguous success is reconciled
+PASS NUM14 Purchase success plus setup failure stays out of dial pool; retry never buys twice
+PASS NUM15 Stale or changed price quotes cannot charge
+PASS NUM16 Missing remote order after timeout does not authorize another purchase
+PASS NUM17 Failed inventory sync marks connection failed and preserves numbers/history
+PASS NUM18 Secrets stay server-side, provider 429 is visible, test flag blocks real purchase
+PASS NUM19 Manual reputation report is distinct from API check and persists
+PASS NUM20 Server throttles management API requests
+PASS NUM21 Fresh provider connection and fresh number verification are both required
+PASS NUM22 Telnyx adapter checks app, enabled outbound profile, inventory and documented prices
+(node:9653) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+PASS NUM23 Preview call creation atomically stores the selected caller ID and reason
+PASS NUM24 Concurrent agents cannot exceed a daily number limit

@@ -204,12 +204,12 @@ async function main() {
     const r = await B3.post("/api/contacts", { fullName: "כפול", phone: "052-100-0003" });
     return { pass: r.status === 409 && r.code === "duplicate_phone", actual: `${r.status} ${r.code}` };
   });
-  await t("M14", "חיוג ידני", "עסק ללא מספר יוצא", "400 no_from_number", async () => {
+  await t("M14", "חיוג ידני", "עסק ללא מספר יוצא", "409 no_eligible_number", async () => {
     const n = await db.phoneNumber.findFirst({ where: { businessId: bizB } });
     await db.phoneNumber.update({ where: { id: n!.id }, data: { isActive: false } });
     const r = await B3.post("/api/dialer/call", { idempotencyKey: key(), mode: "manual", phone: "0521000005" });
     await db.phoneNumber.update({ where: { id: n!.id }, data: { isActive: true } });
-    return { pass: r.status === 400 && r.code === "no_from_number", actual: `${r.status} ${r.code}` };
+    return { pass: r.status === 409 && r.code === "no_eligible_number", actual: `${r.status} ${r.code}` };
   });
   blocked("M15", "חיוג ידני", "חיוג כשהספק מנותק / מיקרופון חסום", "כפתור חיוג מנוטרל והודעה ברורה", "נבדק ב-UI (ראה U-סדרה); ניתוק ספק אמיתי דורש חשבון Telnyx");
 

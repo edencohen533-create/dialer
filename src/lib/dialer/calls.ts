@@ -1,3 +1,4 @@
+import { selectOutboundNumber } from "@/lib/numbers/selection";
 /**
  * Call lifecycle: start (idempotent), state poll + reconciliation, hangup,
  * outcome, DTMF. The provider is the source of truth for "answered".
@@ -37,26 +38,6 @@ export interface StartCallInput {
   contactId?: string;
   phone?: string;
   phoneNumberId?: string;
-}
-
-async function resolveFromNumber(businessId: string, phoneNumberId?: string, listId?: string) {
-  if (!phoneNumberId && listId) {
-    const list = await prisma.dialList.findFirst({ where: { id: listId, businessId }, select: { phoneNumberId: true } });
-    if (list?.phoneNumberId) {
-      const n = await prisma.phoneNumber.findFirst({ where: { id: list.phoneNumberId, businessId, isActive: true } });
-      if (n) return n;
-    }
-  }
-  if (phoneNumberId) {
-    const n = await prisma.phoneNumber.findFirst({ where: { id: phoneNumberId, businessId, isActive: true } });
-    if (!n) throw new ApiError("המספר היוצא שנבחר אינו מורשה לעסק", 400, "invalid_from_number");
-    return n;
-  }
-  const n =
-    (await prisma.phoneNumber.findFirst({ where: { businessId, isActive: true, isDefault: true } })) ??
-    (await prisma.phoneNumber.findFirst({ where: { businessId, isActive: true }, orderBy: { createdAt: "asc" } }));
-  if (!n) throw new ApiError("לא הוגדר מספר יוצא מורשה לעסק – הוסף מספר בהגדרות", 400, "no_from_number");
-  return n;
 }
 
 /** Find or create the contact for a manually dialed number. */
@@ -148,7 +129,7 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
   const liveSame = await prisma.call.findFirst({ where: { businessId: user.businessId, toE164, endedAt: null }, select: { id: true, userId: true } });
   if (liveSame) throw new ApiError("המספר הזה כבר בשיחה פעילה אצל נציג אחר", 409, "number_in_call", { callId: liveSame.id });
 
-  const from = await resolveFromNumber(user.businessId, input.phoneNumberId, listId);
+  if (process.env.TELEPHONY_PROVIDER === "telnyx" && telephony.simulation) throw new ApiError("חיבור הטלפוניה אינו מוגדר; חיוג אמיתי לא זמין", 409, "telephony_unconfigured");
 
   // Session validation (power/preview must run inside a live session owned by this tab)
   let sessionId: string | undefined;
@@ -191,6 +172,8 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
         if (lead.list.isPaused || !lead.list.isActive || lead.list.archivedAt) throw new ApiError("הרשימה אינה זמינה לחיוג", 409, "list_paused");
       }
       if (await tx.dncEntry.findUnique({ where: { businessId_phoneE164: { businessId: user.businessId, phoneE164: toE164 } } })) throw new ApiError("המספר חסום", 403, "dnc_blocked");
+      const selection = await selectOutboundNumber(tx, { businessId: user.businessId, userId: user.id, listId, phoneNumberId: input.phoneNumberId, toE164, simulation: telephony.simulation });
+      const from = selection.number;
       const created = await tx.call.create({
         data: {
           businessId: user.businessId,
@@ -205,6 +188,7 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
           activeForUser: user.id,
           toE164,
           fromE164: from.e164,
+          numberSelectionReason: selection.reason,
           phoneNumberId: from.id,
           status: "created",
         },
@@ -242,7 +226,7 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
 
   // Dial the agent leg (browser). The lead leg is dialed once the agent leg answers.
   try {
-    const r = await telephony.dialAgent({ callId: call.id, sipUsername, fromE164: from.e164, timeoutSeconds: 20 });
+    const r = await telephony.dialAgent({ callId: call.id, sipUsername, fromE164: call.fromE164, timeoutSeconds: 20 });
     await prisma.call.updateMany({ where: { id: call.id, status: "created", endedAt: null }, data: { status: "dialing_agent" } });
     call = await prisma.call.update({
       where: { id: call.id },

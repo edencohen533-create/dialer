@@ -1,0 +1,161 @@
+{
+  "summary": {
+    "total": 15,
+    "passed": 14,
+    "failed": 0,
+    "blocked": 1,
+    "missing": 0
+  },
+  "rows": [
+    {
+      "id": "M1",
+      "area": "חיוג ידני",
+      "scenario": "הקלדה בפורמט מקומי עם רווח ומקף",
+      "expected": "נרמול ל-+972501234567, המקור נשמר להצגה",
+      "actual": "status 200, toE164=+972501234567, phoneRaw=050-123 4567",
+      "status": "עבר",
+      "evidence": "call cmuexub0v003c8mejzqjwkbs1",
+      "mode": "mock"
+    },
+    {
+      "id": "M2",
+      "area": "חיוג ידני",
+      "scenario": "פורמט בינלאומי של מספר קיים",
+      "expected": "אותו איש קשר (ללא כפילות)",
+      "actual": "contacts before=1 after=1, name=לקוח ב׳ 1",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "M3",
+      "area": "חיוג ידני",
+      "scenario": "מספר עם סוגריים",
+      "expected": "נרמול תקין",
+      "actual": "200 +972521000004",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "M4",
+      "area": "חיוג ידני",
+      "scenario": "מספר ריק / קצר / לא תקין",
+      "expected": "400 עם הודעה ברורה, לא נוצרת שיחה",
+      "actual": "400:missing_destination 400:invalid_phone 400:invalid_phone 400:invalid_phone",
+      "status": "עבר",
+      "evidence": "calls 3→3",
+      "mode": "mock"
+    },
+    {
+      "id": "M5",
+      "area": "חיוג ידני",
+      "scenario": "מספר בינלאומי (ארה״ב) עם מדיניות ברירת מחדל IL בלבד",
+      "expected": "מנורמל ל-E.164 אך נדחה 403 country_not_allowed (ראה N4 להתרה)",
+      "actual": "403 country_not_allowed (US)",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "M6",
+      "area": "חיוג ידני",
+      "scenario": "לחיצה כפולה מהירה (שתי בקשות במקביל, מפתחות שונים)",
+      "expected": "נוצרת שיחה אחת בלבד",
+      "actual": "הצלחות=1 (200/409), שיחות חדשות=1",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "M7",
+      "area": "חיוג ידני",
+      "scenario": "אותו מפתח idempotency פעמיים",
+      "expected": "אותו מזהה שיחה",
+      "actual": "cmuexuwdr004d8mejvzg16pcy / cmuexuwdr004d8mejvzg16pcy",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "M8",
+      "area": "חיוג ידני",
+      "scenario": "חיוג בזמן שיחה פעילה",
+      "expected": "409 call_active",
+      "actual": "409 call_active",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "M9",
+      "area": "חיוג ידני",
+      "scenario": "חיוג מכרטיס לקוח (contactId)",
+      "expected": "שיחה עם contactId נכון ומספר יוצא של העסק",
+      "actual": "contact ok=true, from=+97239876543",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "M10",
+      "area": "חיוג ידני",
+      "scenario": "מספר יוצא של עסק אחר",
+      "expected": "400 – לא מורשה",
+      "actual": "400 invalid_from_number",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "M11",
+      "area": "חיוג ידני",
+      "scenario": "שיחות אחרונות / חיוג חוזר",
+      "expected": "המספר מופיע ב-recent",
+      "actual": "7 רשומות, כולל 0521000005=true",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "M12",
+      "area": "חיוג ידני",
+      "scenario": "מספר חסום (DNC) – ידני, מכרטיס ומליד",
+      "expected": "403 dnc_blocked בכל המסלולים",
+      "actual": "403/dnc_blocked, 403/dnc_blocked",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "M13",
+      "area": "חיוג ידני",
+      "scenario": "כפילות מספר בין כרטיסים",
+      "expected": "יצירת איש קשר עם מספר קיים → 409",
+      "actual": "409 duplicate_phone",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "M14",
+      "area": "חיוג ידני",
+      "scenario": "עסק ללא מספר יוצא",
+      "expected": "409 no_eligible_number",
+      "actual": "409 no_eligible_number",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "M15",
+      "area": "חיוג ידני",
+      "scenario": "חיוג כשהספק מנותק / מיקרופון חסום",
+      "expected": "כפתור חיוג מנוטרל והודעה ברורה",
+      "actual": "נבדק ב-UI (ראה U-סדרה); ניתוק ספק אמיתי דורש חשבון Telnyx",
+      "status": "חסום לבדיקה",
+      "evidence": "",
+      "mode": "n/a"
+    }
+  ]
+}
