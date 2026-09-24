@@ -1,0 +1,187 @@
+{
+  "at": "2026-09-24T01:29:45.384Z",
+  "environment": "Next dev, local PostgreSQL, mock adapter + signed synthetic webhooks; no external calls",
+  "databaseTimezone": {
+    "TimeZone": "Asia/Jerusalem"
+  },
+  "stages": [
+    {
+      "concurrency": 1,
+      "cyclesPerAgent": 3,
+      "seconds": 1.923,
+      "requestCount": 41,
+      "requestsPerSecond": 21.3,
+      "apiLatencyMs": {
+        "p50": 70,
+        "p95": 236,
+        "max": 236
+      },
+      "claimed": 3,
+      "duplicateClaims": 0,
+      "liveCalls": 0,
+      "errors": []
+    },
+    {
+      "concurrency": 5,
+      "cyclesPerAgent": 3,
+      "seconds": 6.802,
+      "requestCount": 205,
+      "requestsPerSecond": 30.1,
+      "apiLatencyMs": {
+        "p50": 153,
+        "p95": 662,
+        "max": 2004
+      },
+      "claimed": 15,
+      "duplicateClaims": 0,
+      "liveCalls": 0,
+      "errors": []
+    },
+    {
+      "concurrency": 10,
+      "cyclesPerAgent": 3,
+      "seconds": 10.293,
+      "requestCount": 410,
+      "requestsPerSecond": 39.8,
+      "apiLatencyMs": {
+        "p50": 251,
+        "p95": 1063,
+        "max": 1687
+      },
+      "claimed": 30,
+      "duplicateClaims": 0,
+      "liveCalls": 0,
+      "errors": []
+    },
+    {
+      "concurrency": 20,
+      "cyclesPerAgent": 3,
+      "seconds": 8.416,
+      "requestCount": 820,
+      "requestsPerSecond": 97.4,
+      "apiLatencyMs": {
+        "p50": 219,
+        "p95": 625,
+        "max": 1220
+      },
+      "claimed": 60,
+      "duplicateClaims": 0,
+      "liveCalls": 0,
+      "errors": []
+    }
+  ],
+  "callCount": 108,
+  "eventCount": 324,
+  "plans": [
+    {
+      "QUERY PLAN": [
+        {
+          "Plan": {
+            "Node Type": "Limit",
+            "Parallel Aware": false,
+            "Async Capable": false,
+            "Startup Cost": 457.03,
+            "Total Cost": 457.04,
+            "Plan Rows": 1,
+            "Plan Width": 38,
+            "Actual Startup Time": 2.055,
+            "Actual Total Time": 2.056,
+            "Actual Rows": 1,
+            "Actual Loops": 1,
+            "Disabled": false,
+            "Shared Hit Blocks": 258,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Sort",
+                "Parent Relationship": "Outer",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Startup Cost": 457.03,
+                "Total Cost": 482.29,
+                "Plan Rows": 10101,
+                "Plan Width": 38,
+                "Actual Startup Time": 2.055,
+                "Actual Total Time": 2.055,
+                "Actual Rows": 1,
+                "Actual Loops": 1,
+                "Disabled": false,
+                "Sort Key": [
+                  "priority DESC",
+                  "created_at"
+                ],
+                "Sort Method": "top-N heapsort",
+                "Sort Space Used": 25,
+                "Sort Space Type": "Memory",
+                "Shared Hit Blocks": 258,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "Seq Scan",
+                    "Parent Relationship": "Outer",
+                    "Parallel Aware": false,
+                    "Async Capable": false,
+                    "Relation Name": "list_leads",
+                    "Alias": "list_leads",
+                    "Startup Cost": 0,
+                    "Total Cost": 406.53,
+                    "Plan Rows": 10101,
+                    "Plan Width": 38,
+                    "Actual Startup Time": 0.005,
+                    "Actual Total Time": 1.214,
+                    "Actual Rows": 9892,
+                    "Actual Loops": 1,
+                    "Disabled": false,
+                    "Filter": "((list_id = 'cmueut4qs00013hejizxpldle'::text) AND (status = 'pending'::dialer.\"LeadStatus\"))",
+                    "Rows Removed by Filter": 246,
+                    "Shared Hit Blocks": 252,
+                    "Shared Read Blocks": 0,
+                    "Shared Dirtied Blocks": 0,
+                    "Shared Written Blocks": 0,
+                    "Local Hit Blocks": 0,
+                    "Local Read Blocks": 0,
+                    "Local Dirtied Blocks": 0,
+                    "Local Written Blocks": 0,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0
+                  }
+                ]
+              }
+            ]
+          },
+          "Planning": {
+            "Shared Hit Blocks": 122,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0
+          },
+          "Planning Time": 0.677,
+          "Triggers": [],
+          "Execution Time": 2.062
+        }
+      ]
+    }
+  ]
+}

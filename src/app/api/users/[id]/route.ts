@@ -1,3 +1,4 @@
+import { assertTenantReferences } from "@/lib/tenant-references";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { withAuth, parseBody } from "@/lib/api";
@@ -19,6 +20,7 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
   const target = await prisma.user.findFirst({ where: { id: params.id, businessId: user.businessId } });
   if (!target) throw new ApiError("משתמש לא נמצא", 404, "not_found");
   if (target.id === user.id && (b.isActive === false || (b.role && b.role !== "admin"))) throw new ApiError("לא ניתן להסיר את ההרשאות של עצמך", 400, "self_demote");
+  await assertTenantReferences(user.businessId, { teamId: b.teamId });
   const updated = await prisma.user.update({
     where: { id: target.id },
     data: {

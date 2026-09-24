@@ -1,0 +1,110 @@
+◇ injected env (0) from .env
+PASS M1 הקלדה בפורמט מקומי עם רווח ומקף :: status 200, toE164=+972501234567, phoneRaw=050-123 4567
+PASS M2 פורמט בינלאומי של מספר קיים :: contacts before=1 after=1, name=לקוח ב׳ 1
+PASS M3 מספר עם סוגריים :: 200 +972521000004
+PASS M4 מספר ריק / קצר / לא תקין :: 400:missing_destination 400:invalid_phone 400:invalid_phone 400:invalid_phone
+PASS M5 מספר בינלאומי (ארה״ב) עם מדיניות ברירת מחדל IL בלבד :: 403 country_not_allowed (US)
+PASS M6 לחיצה כפולה מהירה (שתי בקשות במקביל, מפתחות שונים) :: הצלחות=1 (409/200), שיחות חדשות=1
+PASS M7 אותו מפתח idempotency פעמיים :: cmueuvtle02lclrejxe03fivs / cmueuvtle02lclrejxe03fivs
+PASS M8 חיוג בזמן שיחה פעילה :: 409 call_active
+PASS M9 חיוג מכרטיס לקוח (contactId) :: contact ok=true, from=+97239876543
+PASS M10 מספר יוצא של עסק אחר :: 400 invalid_from_number
+PASS M11 שיחות אחרונות / חיוג חוזר :: 7 רשומות, כולל 0521000005=true
+PASS M12 מספר חסום (DNC) – ידני, מכרטיס ומליד :: 403/dnc_blocked, 403/dnc_blocked
+PASS M13 כפילות מספר בין כרטיסים :: 409 duplicate_phone
+PASS M14 עסק ללא מספר יוצא :: 400 no_from_number
+BLOCKED M15 חיוג כשהספק מנותק / מיקרופון חסום :: נבדק ב-UI (ראה U-סדרה); ניתוק ספק אמיתי דורש חשבון Telnyx
+PASS P1 התחלת סשן Preview ומשיכת ליד :: lead=לקוח ב׳ 1, status=locked, calls=0 (אין חיוג אוטומטי)
+PASS P2 דילוג עם סיבה :: reason=לא זמן מתאים, status=pending, attempts=0, next=2026-09-24T02:01:38.615Z
+PASS P3 עדכון פרטי ליד לפני חיוג :: 200 company=חברת QA
+PASS P4 ליד נחסם (DNC) בזמן ההמתנה :: 403 dnc_blocked, lead.status=dnc
+PASS P5 ליד הוסר ע״י מנהל בזמן ההמתנה :: 409 lock_lost
+PASS P6 נעילה פגה וליד נלקח ע״י נציג אחר :: agent4 got lead=true, agent3 dial → 409 lock_lost
+PASS P7 רשימה ריקה :: 200 data=null
+PASS W1 התחלת סשן, משיכה וחיוג – רק שיחה אחת לנציג :: הצלחות=1, שיחות חיות=1, סיום=answered
+PASS W2 מעבר לליד הבא לפני תיעוד :: 409 outcome_required
+PASS W3 שמירת תוצאה בזמן שיחה פעילה :: בזמן שיחה: 409 call_still_active; אחרי ניתוק: 200
+PASS W4 תוצאות ספק: נענה / אין מענה / תפוס / נדחה :: 0521000010→no_answer talk=0s | 0521000011→busy talk=0s | 0521000012→rejected talk=0s | 0521000005→answered talk=3s ring→answer 3s
+PASS W5 השהיה – משיכת ליד בסשן מושהה :: 409 session_paused, presence=paused
+PASS W6 סיום סשן בזמן שיחה :: בזמן שיחה 409/call_active; אחרי: 200, lead.locked=false, presence=offline
+PASS W7 החלפת רשימה בזמן סשן :: old.status=ended, lead.status=pending, locked=false
+PASS W8 מדיניות ניסיונות: אין מענה → ניסיון חוזר; מקסימום → מוצה :: #1: attempts=1 status=pending next=+30m | #2: attempts=2 status=exhausted next=+nullm
+PASS W9 תפוס → ניסיון חוזר לפי busyRetryMinutes (5) :: provider=busy, next=+5m
+PASS W10 callback מנותב לנציג שקבע אותו :: agent4 got=null, owner got=true
+PASS O1 תוצאה "answered_interested" משיחה על ליד :: 200; provider=answered, outcome=answered_interested, note ok=true (1596 תווים), lead.status=completed, בהיסטוריה=true
+PASS O2 תוצאה "answered_not_interested" משיחה על ליד :: 200; provider=busy, outcome=answered_not_interested, note ok=true (1596 תווים), lead.status=completed, בהיסטוריה=true
+PASS O3 תוצאה "callback" משיחה על ליד :: 200; provider=rejected, outcome=callback, note ok=true (1596 תווים), lead.status=callback, tasks=1, בהיסטוריה=true
+PASS O4 תוצאה "no_answer" משיחה על ליד :: 200; provider=answered, outcome=no_answer, note ok=true (1596 תווים), lead.status=pending, בהיסטוריה=true
+PASS O5 תוצאה "busy" משיחה על ליד :: 200; provider=answered, outcome=busy, note ok=true (1596 תווים), lead.status=pending, בהיסטוריה=true
+PASS O6 תוצאה "wrong_number" משיחה על ליד :: 200; provider=answered, outcome=wrong_number, note ok=true (1596 תווים), lead.status=completed, בהיסטוריה=true
+PASS O7 תוצאה "sale" משיחה על ליד :: 200; provider=no_answer, outcome=sale, note ok=true (1596 תווים), lead.status=completed, בהיסטוריה=true
+PASS O8 תוצאה "dnc" משיחה על ליד :: 200; provider=answered, outcome=dnc, note ok=true (1596 תווים), lead.status=dnc, dnc=1, בהיסטוריה=true
+PASS O9 שמירה כפולה של תוצאה :: outcome=callback, tasks=1
+PASS O10 טיוטת הערה נשמרת בשרת ונמחקת אחרי תיעוד :: draft=טיוטה 123 → after outcome=""
+PASS O11 מכירה אינה יוצרת הזמנה/הכנסה :: טבלאות: _prisma_migrations, users, dnc_entries, list_leads, dial_list_agents, contacts, dialer_sessions, businesses, tasks, telephony_events, phone_numbers, scripts, note_drafts, teams, audit_logs, dial_lists, calls, call_monitors
+PASS T1 מועד חזרה בעבר :: עבר: 400/callback_in_past; בלי מועד: 400/callback_time_required
+PASS T2 אזור זמן: מועד עם offset של ישראל נשמר כרגע UTC נכון :: sent=2026-09-25T06:34:00.000+03:00 stored=2026-09-25T03:34:00.000Z
+PASS T3 שינוי מועד ומשימה מסומנת כבוצעה :: next=2026-09-26T01:34:15.801Z, task=done, lead=completed
+PASS T4 נציג רואה רק את המשימות שלו; מנהל רואה את הצוות :: agent4=0 (כולן שלו), manager=1, agent4 מבקש של agent3=0
+PASS D1 חסימה חלה על כל הרשימות של העסק ולא על עסק אחר עם אותו מספר :: B leads=dnc,dnc; A leads=pending; dnc in A=0; audit=1
+PASS D2 הרשאות: נציג לא מסיר חסימה, מנהל כן; שינוי מתועד :: agent 403, manager 200, audit=1
+PASS D3 רשימת DNC למנהל בלבד :: 403
+PASS L1 יצירת רשימה מסינון CRM + מניעת כפילויות + סינון DNC :: added=6 (צפוי 6), שוב=0
+PASS L2 רשימה משויכת לנציג אחר :: agent3 403, agent4 200
+PASS L3 חלון חיוג סגור (רשימת לילה) :: 409 outside_dial_window next=2026-09-25T00:00:00.000Z
+PASS L4 נציג רואה רק רשימות משויכות אליו או פתוחות :: QA-B רשימה, QA-L1, QA-B לילה בלבד, QA-B ריקה
+PASS L5 מחיקת רשימה עם שיחה פעילה :: busy: 409/list_busy; idle: 200, exists=true active=false
+PASS X1 נציג בעסק ב׳ ניגש לאיש קשר / שיחה / הקלטה של עסק א׳ :: 404 404 404 404
+PASS X2 רשימות/חיפוש אנשי קשר לא דולפים בין עסקים :: contacts all B=true; dial lead of A → 409 lock_lost
+PASS X3 דשבורד מנהל: מנהל ב׳ רואה רק את עסק ב׳; מנהל בלי צוות רואה את עצמו בלבד; נציג 403 :: managerB agents=3 (רק ב׳=true), lonely=1, agent=403
+PASS X4 היסטוריית שיחות לפי נראות :: agent3=29, manager=29, lonely=0, agent3→agent4=0
+PASS X5 פעולות ניהול :: agent=403/403/403/403, manager=403/403/403, admin=200
+PASS X6 נציג עורך איש קשר שאינו שלו ולא טיפל בו :: 403 forbidden
+PASS X7 ללא cookie / cookie מזויף :: 401 401
+PASS X8 משתמש מושבת מאבד גישה מיד :: לפני 200, אחרי 401
+PASS S1 heartbeat מלשונית זרה :: {"sessionOk":false,"reason":"session_taken"}
+PASS S2 לשונית שנייה מתחילה סשן :: old tab next-lead → session_ended; state.ownedByThisTab=false
+PASS S3 סגירת דפדפן: סשן ללא heartbeat נסגר, נציג offline, ליד משוחרר :: session=ended, presence=offline, lead=pending/locked=false
+PASS S4 סשן עם שיחה חיה לא נקצר ע״י ה-reaper :: session=active
+PASS G1 מדדים תואמים ל-DB לפי ההגדרות המוצהרות :: api dials=30/30 connected=16/16 avgTalk=0 sales=1/1 rate=53%
+PASS G2 מצב נציג בזמן אמת בזמן שיחה :: בשיחה: in_call/answered; אחרי ניתוק: wrap_up; אחרי תיעוד: available
+PASS H1 חתימה תקינה / גוף שונה / חותמת זמן ישנה :: 200 401 401
+PASS H2 אירוע כפול ואירועים בסדר הפוך (hangup לפני answered) :: hangup→ended=true result=busy; duplicate=true; events stored=1; late answered → status=ended, answeredAt=null
+PASS H3 recording.saved מסמן הקלטה; הורדה דרך proxy מאומת בלבד :: status=saved id=mock-rec-cmueuzy3502w0lrejtup13l1j dur=5000ms; owner=404(recording_unavailable) other-agent=403 manager=404(recording_unavailable) – הורדה אמיתית חסומה ללא Telnyx
+PASS H4 אירוע ל-leg לא מוכר :: 200 {"ok":true,"duplicate":false,"callId":null}
+BLOCKED H5 timeout בבקשת חיוג לספק → בדיקה אם נוצרה שיחה לפני ניסיון חוזר :: דורש ספק אמיתי/פרוקסי רשת; הלוגיקה קיימת ב-reconcileCall אך לא הופעלה בבדיקה
+BLOCKED A1 אודיו דו-כיווני, השתקה בפועל, DTMF ליעד IVR, החלפת אוזניות באמצע שיחה :: אין חשבון Telnyx ומספר בדיקה מאושר
+PASS N1 סדר הגשה לפי ציון שקוף + הסבר לנציג :: סדר=callback>owner>plain; הסברים: חזרה שנקבעה להיום · ליד חדש (פחות משעה) | ליד חדש (פחות משעה) · הליד שלך | ליד חדש (פחות משעה)
+PASS N2 עצירת חיוגים ברמת העסק (kill switch) :: next-lead dialing_paused, dial dialing_paused, dashboard paused=true, after resume 200, audit=1
+PASS N3 השהיית רשימה בודדת :: 409 list_paused; queue paused=true dueNow=0
+PASS N4 הגבלת מדינות יעד :: IL בלבד: 403/country_not_allowed (US); עם US: 200
+PASS N5 הגבלת קצב חיוג לנציג :: 200, 200, 429/rate_limited
+PASS N6 אותו מספר בשיחה חיה אצל נציג אחר (כרטיסים כפולים) :: 409 number_in_call
+PASS N7 כשל טכני (leg הנציג נכשל לפני צלצול) :: call=failed autoSaved=true lead=pending attempts=0 next=+10m wrapUpRequired=false audit=1
+PASS N8 העברת ליד לנציג אחר ע״י מנהל :: 200; locked=null preferred=true; agent4 got it=true; audit=1
+PASS N9 שכפול, ארכוב ורענון רשימה דינמית :: copied=7/7; archived→session list_inactive; dynamic refresh added=1; frozen refresh=400/list_frozen
+PASS N10 מכירה סוגרת את הליד בכל הרשימות האחרות ומבטלת משימות פתוחות :: other list lead=completed; automation log=true ({"callId":"cmuev10b002yqlrej9n5pqha7","result":"ok","trigger":"outcome:sale","leadsClosed":4})
+PASS N11 לקוח מתקשר: זיהוי, ניתוב לבעלים, קבלה, ניתוק, היסטוריה :: routed=routed_to_owner/true; ringing=true; accept 200; answered; ended=answered talk=2s; wrap-up=true; בהיסטוריה=true
+PASS N12 בעלים עסוק → נציג זמין אחר; אף אחד זמין → לא נענה + משימת חזרה; דחייה ע״י נציג :: busy owner → routed_to_available_agent (agent4=true); reject 200 ended=true note=rejected_by_agent; nobody → no_agent_available/no_answer, task +1, audit=1
+PASS N13 סיכום סשן אמיתי :: dials=2 connected=2 outcomes=2 queue.total=7
+PASS N14 היסטוריית שינויי הגדרות :: audit +2; last diff={"to":30,"from":45}
+PASS N15 ייבוא עם דוח שגיאות לפי שורה :: {"created":1,"updated":0,"invalid":2,"errors":[{"row":2,"phone":"12","reason":"מספר טלפון לא תקין"},{"row":3,"phone":"abc","reason":"מספר טלפון לא תקין"}]}
+PASS N16 מדדים מורחבים ודיוק טווח (חציית חצות, ללא ספירה כפולה) :: today dials=46/46, with yesterday=47; unique=6/6; avgRing=4s avgWrap=0s gap=7s adherence={"due":3,"onTime":1,"overdueOpen":0,"rate":33}
+PASS N17 מדיניות שמירה – עבודת רקע מוחקת הקלטות ישנות :: unauth 401; job 200; old=none new=saved
+PASS N18 4 נציגים בשני עסקים מריצים תותח שיחות במקביל :: לידים שנמשכו=12 כפולים=0 שגיאות=0; next-lead latency p50=42ms p95=59ms (PostgreSQL מקומי; סימולציה)
+PASS N19 רשימה של 10,000 לידים – הקצאה ועימוד :: leads=10000; DB RTT=1ms; next-lead p50=40ms p95=55ms; עמוד 100 (50 שורות)=21ms; סטטיסטיקה=27ms (dueNow=9990)
+BLOCKED N20 החזקה, העברה, ועידה, האזנה/לחישה :: לא ממומש: Telnyx תומך דרך Conferences API; דורש החלטת מוצר ומימוש נפרד – לא מוצגים כפתורים
+BLOCKED N21 תמלול, סיכום, זיהוי התנגדויות :: אין ספק תמלול מחובר – לא מיוצרים סיכומים מדומים
+BLOCKED N22 הודעת המשך לפי כללי החיבור :: אין חיבור WhatsApp במערכת זו
+PASS R1 הרשאות: נציג, מנהל מעסק אחר, מנהל בלי צוות, האזנה לעצמך :: agent 403, other business 404, no-team manager 403, self 400/self_monitor
+PASS R2 הצטרפות רק אחרי מענה; 'מאזין' רק אחרי אישור חיבור :: early=call_not_answered; start=connecting → listening after 1478ms; live row shows monitor=listening; audit=monitor.started,monitor.joined
+PASS R3 לחיצה כפולה ושיחה אחת בכל פעם :: double: 200/200 same=true; other call → 409/monitor_active; active monitors=1
+PASS R4 מעבר מפורש ללחישה וחזרה; יציאה לא פוגעת בשיחה :: whisper→whispering, listen→listening, agent switch 403, stop→ended, call alive=true; audit=monitor.started,monitor.joined,monitor.whisper_on,monitor.whisper_off,monitor.ended
+PASS R5 השיחה מסתיימת בזמן האזנה / בזמן התחברות :: while listening → ended/call_ended; while connecting (connecting) → ended; active monitor after=null
+PASS R6 עדכון תוך ~2ש׳: חיוג, מענה, ניתוק משתקפים ב-/live; מונה השיחות עולה פעם אחת :: statuses seen: dialing→ringing→in_call; lag DB-visible→live=0ms; provider-timestamp→live=13ms (כולל עיבוד הסימולציה מקומית מול local PostgreSQL); wrap_up=true; attempts 57→58
+PASS R7 אירוע ישן לא מחזיר שיחה שהסתיימה; אירוע כפול לא מכפיל מונים :: call stays ended, answeredAt=null; attempts 59→59; answered 36→36; row=available
+PASS R8 מדדי היום מול נתוני בדיקה ידועים (יוצאות = ניסיונות שהספק יצר; נכשלו לפני יצירה בנפרד) :: attempts 59/59, answered 36/36, failedPre 0/0, rate 61%, sales 2/2, talk 21/21
+PASS R9 דפדפן מנותק אך השיחה חיה → מוצגים שני הנתונים; אין סיום שיחה בגלל אובדן heartbeat :: status=in_call connected=false call alive=true
+BLOCKED R10 בידוד אודיו: המנהל שומע את שני הצדדים, אף צד לא שומע אותו; בלחישה רק הנציג שומע :: אין חשבון Telnyx ומספר בדיקה. הבידוד נאכף אצל הספק (supervisor_role monitor/whisper + whisper_call_control_ids) – מאומת מול ה-OpenAPI בלבד
+
+SUMMARY {"total":107,"passed":100,"failed":0,"blocked":7,"missing":0}

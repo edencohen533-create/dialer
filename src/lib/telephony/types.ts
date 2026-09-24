@@ -30,6 +30,7 @@ export interface ProviderEvent {
   hangupCause?: string;
   hangupSource?: string;
   amdResult?: string;
+  recordingId?: string;
   recordingDurationMs?: number;
   raw: unknown;
 }

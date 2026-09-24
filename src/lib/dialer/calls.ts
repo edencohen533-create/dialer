@@ -4,6 +4,7 @@
  */
 import { Prisma } from "@/generated/prisma/client";
 import type { DialMode, OutcomeKey } from "@/generated/prisma/enums";
+import { lockAgent } from "./locking";
 import { prisma } from "@/lib/db";
 import { ApiError } from "@/lib/response";
 import { normalizePhone } from "@/lib/phone";
@@ -14,7 +15,7 @@ import { dueMockEvents } from "@/lib/telephony/mock";
 import { afterCallFinalized, dialLeadLeg, processProviderEvent } from "@/lib/telephony/events";
 import { getBusinessSettings, isWithinDialWindow } from "@/lib/settings";
 import { OUTCOME_BY_KEY } from "@/lib/outcomes";
-import { applyOutcomeToLead, assertLeadLock, isDnc, listDialWindow } from "@/lib/dialer/queue";
+import { applyOutcomeToLead, assertListAccess, assertLeadLock, isDnc, listDialWindow } from "@/lib/dialer/queue";
 import { audit } from "@/lib/audit";
 import type { SessionUser } from "@/lib/auth";
 
@@ -60,10 +61,10 @@ async function resolveFromNumber(businessId: string, phoneNumberId?: string, lis
 
 /** Find or create the contact for a manually dialed number. */
 async function contactForPhone(businessId: string, userId: string, phoneE164: string, raw: string) {
-  const existing = await prisma.contact.findUnique({ where: { businessId_phoneE164: { businessId, phoneE164 } } });
-  if (existing) return existing;
-  return prisma.contact.create({
-    data: { businessId, fullName: "מספר לא מזוהה", phoneE164, phoneRaw: raw, source: "manual_dial", ownerUserId: userId },
+  return prisma.contact.upsert({
+    where: { businessId_phoneE164: { businessId, phoneE164 } },
+    update: {},
+    create: { businessId, fullName: "מספר לא מזוהה", phoneE164, phoneRaw: raw, source: "manual_dial", ownerUserId: userId },
   });
 }
 
@@ -77,6 +78,12 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
 
   const live = await prisma.call.findUnique({ where: { activeForUser: user.id }, include: CALL_INCLUDE });
   if (live) throw new ApiError("יש לך כבר שיחה פעילה", 409, "call_active", { callId: live.id });
+
+  if (input.mode !== "manual" && (!input.sessionId || !input.leadId || !input.lockToken)) {
+    throw new ApiError("נדרש סשן פעיל וליד נעול", 409, "session_required");
+  }
+  const pending = await pendingWrapUpFor(user.id);
+  if (pending) throw new ApiError("יש לשמור את תוצאת השיחה הקודמת", 409, "outcome_required");
 
   const me = await prisma.user.findUnique({ where: { id: user.id }, select: { sipUsername: true } });
   const telephony = getTelephony();
@@ -95,8 +102,9 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
     const lead = await assertLeadLock(user.id, input.leadId, input.lockToken);
     if (lead.status === "in_call") throw new ApiError("כבר יש שיחה לליד זה", 409, "call_active");
     if (lead.businessId !== user.businessId) throw new ApiError("ליד לא נמצא", 404, "not_found");
+    await assertListAccess(user.businessId, user.id, user.role, lead.listId);
     const window = await listDialWindow(user.businessId, lead.listId);
-    if (input.mode !== "manual" && !isWithinDialWindow(window)) {
+    if (!isWithinDialWindow(window)) {
       throw new ApiError("מחוץ לחלון החיוג של הרשימה", 409, "outside_dial_window", { window });
     }
     contactId = lead.contactId;
@@ -147,15 +155,42 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
   if (input.sessionId) {
     const s = await prisma.dialerSession.findFirst({ where: { id: input.sessionId, userId: user.id, status: { in: ["active", "paused"] } } });
     if (!s) throw new ApiError("הסשן הסתיים – התחל סשן חדש", 409, "session_ended");
-    if (input.browserSessionId && s.browserSessionId !== input.browserSessionId) {
+    if (s.browserSessionId !== input.browserSessionId) {
       throw new ApiError("החיוג פעיל בלשונית אחרת", 409, "session_taken");
     }
+    if (s.status === "paused") throw new ApiError("הסשן מושהה", 409, "session_paused");
+    if (input.mode !== "manual" && (s.mode !== input.mode || s.listId !== listId)) throw new ApiError("הליד אינו שייך לסשן", 409, "session_mismatch");
     sessionId = s.id;
   }
 
   let call: CallWithRefs;
+  let createdHere = false;
   try {
     call = await prisma.$transaction(async (tx) => {
+      await lockAgent(tx, user.id);
+      // A transaction-scoped destination lock closes the race between different agents.
+      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${user.businessId + ":" + toE164}, 0))`);
+      const duplicate = await tx.call.findUnique({ where: { idempotencyKey: input.idempotencyKey }, include: CALL_INCLUDE });
+      if (duplicate) {
+        if (duplicate.userId !== user.id || duplicate.businessId !== user.businessId) throw new ApiError("מפתח בקשה לא תקין", 400, "bad_idempotency_key");
+        return duplicate;
+      }
+      if (await tx.call.findUnique({ where: { activeForUser: user.id } })) throw new ApiError("יש שיחה פעילה", 409, "call_active");
+      if (await tx.call.findFirst({ where: { businessId: user.businessId, toE164, endedAt: null } })) throw new ApiError("המספר כבר בשיחה", 409, "number_in_call");
+      if (await tx.call.findFirst({ where: { userId: user.id, endedAt: { not: null }, outcomeSavedAt: null } })) throw new ApiError("נדרש תיעוד שיחה", 409, "outcome_required");
+      if (!sessionId && await tx.dialerSession.findFirst({ where: { userId: user.id, status: "paused" } })) throw new ApiError("הסשן מושהה", 409, "session_paused");
+      if (sessionId) {
+        const current = await tx.dialerSession.findUnique({ where: { id: sessionId } });
+        if (!current || current.status === "ended") throw new ApiError("הסשן הסתיים", 409, "session_ended");
+        if (current.status === "paused") throw new ApiError("הסשן מושהה", 409, "session_paused");
+        if (current.browserSessionId !== input.browserSessionId) throw new ApiError("הסשן בלשונית אחרת", 409, "session_taken");
+      }
+      if (leadId) {
+        const lead = await tx.listLead.findUnique({ where: { id: leadId }, include: { list: true } });
+        if (!lead || lead.status !== "locked" || lead.lockedByUserId !== user.id || lead.lockToken !== input.lockToken || !lead.lockExpiresAt || lead.lockExpiresAt.getTime() < Date.now()) throw new ApiError("נעילת הליד פגה", 409, "lock_lost");
+        if (lead.list.isPaused || !lead.list.isActive || lead.list.archivedAt) throw new ApiError("הרשימה אינה זמינה לחיוג", 409, "list_paused");
+      }
+      if (await tx.dncEntry.findUnique({ where: { businessId_phoneE164: { businessId: user.businessId, phoneE164: toE164 } } })) throw new ApiError("המספר חסום", 403, "dnc_blocked");
       const created = await tx.call.create({
         data: {
           businessId: user.businessId,
@@ -176,8 +211,8 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
         include: CALL_INCLUDE,
       });
       if (leadId) {
-        await tx.listLead.update({
-          where: { id: leadId },
+        const claimed = await tx.listLead.updateMany({
+          where: { id: leadId, status: "locked", lockedByUserId: user.id, lockToken: input.lockToken, lockExpiresAt: { gte: new Date() } },
           data: {
             status: "in_call",
             attempts: { increment: 1 },
@@ -185,28 +220,33 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
             lockExpiresAt: new Date(Date.now() + (settings.lockTtlSeconds + 3600) * 1000),
           },
         });
+        if (!claimed.count) throw new ApiError("נעילת הליד השתנתה", 409, "lock_lost");
       }
       await tx.user.update({ where: { id: user.id }, data: { presence: "in_call", presenceAt: new Date() } });
       if (sessionId) await tx.dialerSession.update({ where: { id: sessionId }, data: { dialsCount: { increment: 1 } } });
+      createdHere = true;
       return created;
     });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       const again = await prisma.call.findUnique({ where: { idempotencyKey: input.idempotencyKey }, include: CALL_INCLUDE });
-      if (again) return again;
+      if (again && again.userId === user.id && again.businessId === user.businessId) return again;
       throw new ApiError("יש לך כבר שיחה פעילה", 409, "call_active");
     }
     throw err;
   }
+
+  if (!createdHere) return call;
 
   await audit(user.businessId, user.id, "call", call.id, "call.started", { mode: input.mode, to: toE164, leadId });
 
   // Dial the agent leg (browser). The lead leg is dialed once the agent leg answers.
   try {
     const r = await telephony.dialAgent({ callId: call.id, sipUsername, fromE164: from.e164, timeoutSeconds: 20 });
+    await prisma.call.updateMany({ where: { id: call.id, status: "created", endedAt: null }, data: { status: "dialing_agent" } });
     call = await prisma.call.update({
       where: { id: call.id },
-      data: { agentLegId: r.legId, providerSessionId: r.providerSessionId, status: "dialing_agent", dialPendingSince: null },
+      data: { agentLegId: r.legId, providerSessionId: r.providerSessionId, dialPendingSince: null },
       include: CALL_INCLUDE,
     });
   } catch (err) {
@@ -250,16 +290,26 @@ export async function reconcileCall(callId: string): Promise<CallWithRefs | null
 
   // 1. Dial request timed out earlier: wait for a webhook; then retry with the SAME command_id.
   if (call.dialPendingSince && now - call.dialPendingSince.getTime() > DIAL_PENDING_RETRY_MS) {
+    // Never recreate a possibly-live call after the provider's deduplication window.
+    // Claim at most one retry persistently so concurrent polls cannot multiply it.
+    const origin = call.agentLegId ? (call.agentAnsweredAt ?? call.createdAt) : call.createdAt;
+    if (call.hangupRequestedAt || now - origin.getTime() > 45_000 || call.failureReason === "dial_retry_attempted") {
+      await prisma.call.updateMany({ where: { id: call.id, endedAt: null }, data: { failureReason: "provider_confirmation_required" } });
+      return prisma.call.findUnique({ where: { id: call.id }, include: CALL_INCLUDE });
+    }
+    if (call.failureReason === "provider_confirmation_required") return call;
+    const claimed = await prisma.call.updateMany({ where: { id: call.id, endedAt: null, failureReason: null }, data: { failureReason: "dial_retry_attempted" } });
+    if (!claimed.count) return call;
     if (!call.agentLegId) {
       const me = await prisma.user.findUnique({ where: { id: call.userId }, select: { sipUsername: true } });
       try {
         const r = await telephony.dialAgent({ callId: call.id, sipUsername: me?.sipUsername ?? "", fromE164: call.fromE164, timeoutSeconds: 20 });
-        call = await prisma.call.update({ where: { id: call.id }, data: { agentLegId: r.legId, status: "dialing_agent", dialPendingSince: null }, include: CALL_INCLUDE });
+        call = await prisma.call.update({ where: { id: call.id }, data: { agentLegId: r.legId, dialPendingSince: null }, include: CALL_INCLUDE });
       } catch (err) {
         if (!(err instanceof TelephonyRequestTimeout)) {
           call = await finalizeLocally(call.id, "failed", String((err as Error).message));
         } else {
-          await prisma.call.update({ where: { id: call.id }, data: { dialPendingSince: new Date() } });
+          await prisma.call.update({ where: { id: call.id }, data: { failureReason: "provider_confirmation_required" } });
         }
       }
     } else if (!call.leadLegId) {
@@ -323,7 +373,8 @@ export async function hangupCall(user: SessionUser, callId: string) {
   await prisma.call.updateMany({ where: { id: callId, hangupRequestedAt: null }, data: { hangupRequestedAt: new Date() } });
   const legs = [call.leadLegId, call.agentLegId].filter(Boolean) as string[];
   if (legs.length === 0) {
-    // Nothing was ever dialed – finalize locally.
+    // A timed-out request may still have created a provider leg; await its webhook.
+    if (call.dialPendingSince) return prisma.call.update({ where: { id: callId }, data: { failureReason: "provider_confirmation_required" }, include: CALL_INCLUDE });
     return finalizeLocally(callId, "ended", "hangup_before_dial");
   }
   for (const leg of legs) {
@@ -354,6 +405,8 @@ export interface SaveOutcomeInput {
 
 /** Save the business outcome. Blocked while the call is still alive at the provider. */
 export async function saveOutcome(user: SessionUser, input: SaveOutcomeInput): Promise<CallWithRefs> {
+  const owned = await prisma.call.findFirst({ where: { id: input.callId, userId: user.id, businessId: user.businessId }, select: { id: true } });
+  if (!owned) throw new ApiError("שיחה לא נמצאה", 404, "not_found");
   const call = await reconcileCall(input.callId);
   if (!call || call.userId !== user.id) throw new ApiError("שיחה לא נמצאה", 404, "not_found");
   if (!call.endedAt) throw new ApiError("השיחה עדיין פעילה – נתק לפני שמירת תוצאה", 409, "call_still_active");
@@ -365,6 +418,9 @@ export async function saveOutcome(user: SessionUser, input: SaveOutcomeInput): P
   if (input.callbackAt && input.callbackAt.getTime() < Date.now() - 60_000) throw new ApiError("מועד החזרה חייב להיות בעתיד", 400, "callback_in_past");
 
   const updated = await prisma.$transaction(async (tx) => {
+    await lockAgent(tx, user.id);
+    const fresh = await tx.call.findUniqueOrThrow({ where: { id: call.id }, include: CALL_INCLUDE });
+    if (fresh.outcomeSavedAt) return fresh;
     const u = await tx.call.update({
       where: { id: call.id },
       data: { outcome: input.outcome, outcomeNote: input.note?.trim() || null, outcomeSavedAt: new Date(), callbackAt: input.callbackAt ?? null },
@@ -389,31 +445,31 @@ export async function saveOutcome(user: SessionUser, input: SaveOutcomeInput): P
       });
     }
     if (call.contactId) await tx.noteDraft.deleteMany({ where: { userId: user.id, contactId: call.contactId } });
+    if (call.leadId) {
+      await applyOutcomeToLead({ businessId: user.businessId, userId: user.id, leadId: call.leadId, outcome: input.outcome, callbackAt: input.callbackAt, note: input.note }, tx);
+    } else if (def.addsToDnc) {
+      const { addToDnc } = await import("@/lib/dialer/queue");
+      await addToDnc(user.businessId, user.id, call.toE164, `outcome:${input.outcome}`, tx);
+    }
+
+    // Automation: a sale closes the contact's pending leads in every other list of the business.
+    if (def.isSale && call.contactId) {
+      const settings = await getBusinessSettings(user.businessId, tx);
+      if (settings.removeFromOtherListsOnSale) {
+        const r = await tx.listLead.updateMany({
+          where: { businessId: user.businessId, contactId: call.contactId, status: { in: ["pending", "callback", "locked"] }, ...(call.leadId ? { NOT: { id: call.leadId } } : {}) },
+          data: { status: "completed", lockedByUserId: null, lockToken: null, lockExpiresAt: null, nextAttemptAt: null, preferredUserId: null },
+        });
+        await tx.task.updateMany({ where: { businessId: user.businessId, contactId: call.contactId, status: "open", NOT: { callId: call.id } }, data: { status: "cancelled" } });
+        await audit(user.businessId, user.id, "automation", call.contactId, "automation.sale_removed_from_lists", { trigger: "outcome:sale", callId: call.id, leadsClosed: r.count, result: "ok" }, tx);
+      }
+    }
+
+    const session = await tx.dialerSession.findFirst({ where: { userId: user.id, status: { in: ["active", "paused"] } } });
+    await tx.user.updateMany({ where: { id: user.id, presence: "wrap_up" }, data: { presence: session?.status === "paused" ? "paused" : "available", presenceAt: new Date() } });
+    await audit(user.businessId, user.id, "call", call.id, "call.outcome_saved", { outcome: input.outcome }, tx);
     return u;
   });
-
-  if (call.leadId) {
-    await applyOutcomeToLead({ businessId: user.businessId, userId: user.id, leadId: call.leadId, outcome: input.outcome, callbackAt: input.callbackAt, note: input.note });
-  } else if (def.addsToDnc) {
-    const { addToDnc } = await import("@/lib/dialer/queue");
-    await addToDnc(user.businessId, user.id, call.toE164, `outcome:${input.outcome}`);
-  }
-
-  // Automation: a sale closes the contact's pending leads in every other list of the business.
-  if (def.isSale && call.contactId) {
-    const settings = await getBusinessSettings(user.businessId);
-    if (settings.removeFromOtherListsOnSale) {
-      const r = await prisma.listLead.updateMany({
-        where: { businessId: user.businessId, contactId: call.contactId, status: { in: ["pending", "callback", "locked"] }, ...(call.leadId ? { NOT: { id: call.leadId } } : {}) },
-        data: { status: "completed", lockedByUserId: null, lockToken: null, lockExpiresAt: null, nextAttemptAt: null, preferredUserId: null },
-      });
-      await prisma.task.updateMany({ where: { businessId: user.businessId, contactId: call.contactId, status: "open", NOT: { callId: call.id } }, data: { status: "cancelled" } });
-      await audit(user.businessId, user.id, "automation", call.contactId, "automation.sale_removed_from_lists", { trigger: "outcome:sale", callId: call.id, leadsClosed: r.count, result: "ok" });
-    }
-  }
-
-  await prisma.user.updateMany({ where: { id: user.id, presence: "wrap_up" }, data: { presence: "available", presenceAt: new Date() } });
-  await audit(user.businessId, user.id, "call", call.id, "call.outcome_saved", { outcome: input.outcome });
   return updated;
 }
 
@@ -427,7 +483,7 @@ export async function activeCallFor(userId: string) {
 /** The most recent ended call that still needs an outcome (wrap-up). */
 export async function pendingWrapUpFor(userId: string) {
   return prisma.call.findFirst({
-    where: { userId, endedAt: { not: null }, outcomeSavedAt: null, createdAt: { gte: new Date(Date.now() - 6 * 3600_000) } },
+    where: { userId, endedAt: { not: null }, outcomeSavedAt: null },
     orderBy: { createdAt: "desc" },
     include: CALL_INCLUDE,
   });

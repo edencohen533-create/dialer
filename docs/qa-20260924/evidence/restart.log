@@ -1,0 +1,1 @@
+{"at":"2026-09-24T01:59:03.734Z","mode":"local production build with mock provider","status":"עבר","sameCallAfterProcessRestart":true,"callCount":1,"idempotentRetry":true,"noLiveCallsAfterCleanup":true,"restartAndRecoveryMs":699}

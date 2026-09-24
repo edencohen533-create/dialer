@@ -1,0 +1,209 @@
+{
+  "summary": {
+    "total": 20,
+    "passed": 20,
+    "failed": 0
+  },
+  "rows": [
+    {
+      "id": "U1",
+      "area": "UI",
+      "scenario": "כניסה → מסך חיוג, RTL, מספר טלפון מוצג LTR",
+      "expected": "dir=rtl על html; אלמנט .phone עם direction ltr",
+      "actual": "html dir=rtl, phone direction=ltr",
+      "status": "עבר",
+      "evidence": "docs/qa-20260924/shots/U1-*.png",
+      "mode": "mock"
+    },
+    {
+      "id": "U2",
+      "area": "UI",
+      "scenario": "תג הדמיה ומצב חיבור טלפוניה",
+      "expected": "מוצג 'מצב הדמיה' ובסרגל 'הדמיה'",
+      "actual": "badge=true, sidebar=true",
+      "status": "עבר",
+      "evidence": "docs/qa-20260924/shots/U2-*.png",
+      "mode": "mock"
+    },
+    {
+      "id": "U3",
+      "area": "חיוג ידני",
+      "scenario": "הדבקה+חיוג, מצבי שיחה, טיימר ממענה, ניתוק, תיעוד במקשים",
+      "expected": "מעבר מצבים → 'בשיחה' → אחרי ניתוק פאנל תוצאה → מקש 2 + Enter שומר",
+      "actual": "paste→0501234507; מצבים=מחבר את הנציג→מחייג ללקוח→מצלצל→בשיחה; טיימר=true (00:03); חיוג מנוטרל בזמן שיחה=true; נבחר=\"ענה – לא מעוניין2\"; שיחה חדשה=true",
+      "status": "עבר",
+      "evidence": "docs/qa-20260924/shots/U3-*.png",
+      "mode": "mock"
+    },
+    {
+      "id": "U4",
+      "area": "UI",
+      "scenario": "קיצורי מקלדת לא פועלים בזמן הקלדת הערות",
+      "expected": "הקלדת '4' בתיבת ההערות לא בוחרת תוצאה",
+      "actual": "לפני=[\"אין מענה4\"] אחרי=[\"אין מענה4\"]",
+      "status": "עבר",
+      "evidence": "docs/qa-20260924/shots/U4-*.png",
+      "mode": "mock"
+    },
+    {
+      "id": "U5",
+      "area": "תיעוד",
+      "scenario": "טיוטת הערות שורדת רענון",
+      "expected": "אחרי reload התיבה מכילה את הטקסט",
+      "actual": "textarea=\"טיוטה לפני רענון ✍️\"; outcome=no_answer",
+      "status": "עבר",
+      "evidence": "docs/qa-20260924/shots/U5-*.png",
+      "mode": "mock"
+    },
+    {
+      "id": "U6",
+      "area": "UI",
+      "scenario": "פס שיחה קבוע בניווט בין מסכים",
+      "expected": "ב-/contacts מוצג פס עם טיימר ונתק; חזרה ל-/dialer מציגה אותה שיחה",
+      "actual": "bar=\"מספר לא מזוהה050-123-4508בשיחה00:02הדמיההשתקנתקלמסך החיוג\"; same call after nav=true",
+      "status": "עבר",
+      "evidence": "docs/qa-20260924/shots/U6-*.png",
+      "mode": "mock"
+    },
+    {
+      "id": "U7",
+      "area": "תותח שיחות",
+      "scenario": "סשן מלא: התחלה → חיוג אוטומטי → תיעוד → ספירה לאחור → השהיה עוצרת → המשך מחייג",
+      "expected": "אין חיוג נוסף בזמן השהיה; אחרי המשך נוצרת שיחה חדשה; 'סיים סשן' מנוטרל בזמן שיחה",
+      "actual": "שיחה ראשונה=true; שיחה חדשה במהלך השהיה=false; שיחה חדשה אחרי המשך=true; 'סיים סשן' מנוטרל בשיחה=true",
+      "status": "עבר",
+      "evidence": "docs/qa-20260924/shots/U7-*.png",
+      "mode": "mock"
+    },
+    {
+      "id": "U8",
+      "area": "Preview",
+      "scenario": "אין חיוג אוטומטי; דילוג עם סיבה דרך המודל",
+      "expected": "ליד מוצג, 0 שיחות ב-8 שניות, המודל מציג סיבות ואחרי בחירה נטען ליד אחר",
+      "actual": "שיחה חדשה ב-8ש׳=false; ליד1=\"מרים שפירא\" → ליד2=\"רחל אברהם\" (API: רחל אברהם)",
+      "status": "עבר",
+      "evidence": "docs/qa-20260924/shots/U8-*.png",
+      "mode": "mock"
+    },
+    {
+      "id": "U9",
+      "area": "סשנים",
+      "scenario": "שתי לשוניות – השנייה משתלטת על הסשן",
+      "expected": "הלשונית הראשונה מציגה 'הסשן עבר ללשונית אחרת' ומנטרלת פעולות",
+      "actual": "הודעה מוצגת; חיוג לליד מנוטרל=true",
+      "status": "עבר",
+      "evidence": "docs/qa-20260924/shots/U9-*.png",
+      "mode": "mock"
+    },
+    {
+      "id": "U10",
+      "area": "UI",
+      "scenario": "אנשי קשר: חיוג מכרטיס ופס שיחה",
+      "expected": "לחיצה על 'חייג' בשורה יוצרת שיחה ופס שיחה מופיע",
+      "actual": "שיחה חדשה=true",
+      "status": "עבר",
+      "evidence": "docs/qa-20260924/shots/U10-*.png",
+      "mode": "mock"
+    },
+    {
+      "id": "U11",
+      "area": "מנהל",
+      "scenario": "דשבורד מנהל מציג נציג 'בשיחה' בזמן אמת",
+      "expected": "שורת agent1 מציגה 'בשיחה' ואחרי תיעוד 'זמין'/'מנותק'",
+      "actual": "בזמן שיחה: כולל 'בשיחה'=true; אחרי: זמין",
+      "status": "עבר",
+      "evidence": "docs/qa-20260924/shots/U11-*.png",
+      "mode": "mock"
+    },
+    {
+      "id": "U12",
+      "area": "UI",
+      "scenario": "מיקרופון חסום – הודעה ברורה",
+      "expected": "בלי הרשאת מיקרופון מוצגת הודעת שגיאה בלוח השיחה",
+      "actual": "\"הדפדפן חסם גישה למיקרופון – אפשר הרשאה בסרגל הכתובת ורענן\"",
+      "status": "עבר",
+      "evidence": "docs/qa-20260924/shots/U12-*.png",
+      "mode": "mock"
+    },
+    {
+      "id": "U13",
+      "area": "UI",
+      "scenario": "עמודי ניהול נטענים עם נתונים אמיתיים",
+      "expected": "/lists מציג את הרשימה, /tasks נטען, /settings טאבים",
+      "actual": "lists=true, tasks=true, telephony tab=true",
+      "status": "עבר",
+      "evidence": "docs/qa-20260924/shots/U13-*.png",
+      "mode": "mock"
+    },
+    {
+      "id": "U14",
+      "area": "שיחות נכנסות",
+      "scenario": "שיחה נכנסת מוצגת לנציג עם קבל/דחה; קבלה → בשיחה; ניתוק → תיעוד",
+      "expected": "פס 'שיחה נכנסת' + כפתורים; אחרי קבלה טיימר; אחרי ניתוק פאנל תוצאה",
+      "actual": "routed=routed_to_owner; answered inbound=true",
+      "status": "עבר",
+      "evidence": "docs/qa-20260924/shots/U14-*.png",
+      "mode": "mock"
+    },
+    {
+      "id": "U15",
+      "area": "תותח שיחות",
+      "scenario": "סיום רשימה: סיכום סשן אמיתי ומודל",
+      "expected": "אחרי הליד האחרון מוצג 'הרשימה נגמרה – סיכום סשן' עם מספרים",
+      "actual": "list ok=true; modal=\"הרשימה נגמרה – סיכום סשן×1חיוגים0נענו0דקות שיחהמספר שגוי1זמן תיעוד ממוצע: 0 שנ׳נ\"; session ended=true",
+      "status": "עבר",
+      "evidence": "docs/qa-20260924/shots/U15-*.png",
+      "mode": "mock"
+    },
+    {
+      "id": "U16",
+      "area": "מנהל",
+      "scenario": "kill switch: מנהל עוצר חיוגים – הנציג נחסם עם הודעה ברורה",
+      "expected": "חיוג ידני מקבל toast 'החיוג מושהה'; אחרי חידוש עובד",
+      "actual": "נחסם עם הודעה=true; אחרי חידוש שיחה חדשה=true",
+      "status": "עבר",
+      "evidence": "docs/qa-20260924/shots/U16-*.png",
+      "mode": "mock"
+    },
+    {
+      "id": "U17",
+      "area": "תעדוף",
+      "scenario": "'למה עכשיו' מוצג בכרטיס הליד",
+      "expected": "טקסט הסבר תעדוף מופיע",
+      "actual": "\"למה עכשיו: ליד חדש (פחות משעה) · הליד שלך\"",
+      "status": "עבר",
+      "evidence": "docs/qa-20260924/shots/U17-*.png",
+      "mode": "mock"
+    },
+    {
+      "id": "U18",
+      "area": "הגדרות",
+      "scenario": "טאבים חדשים: תעדוף, בטיחות, היסטוריה נטענים עם נתונים",
+      "expected": "",
+      "actual": "prio=true safety=true history=true",
+      "status": "עבר",
+      "evidence": "docs/qa-20260924/shots/U18-*.png",
+      "mode": "mock"
+    },
+    {
+      "id": "U19",
+      "area": "מוקד חי",
+      "scenario": "דף 'מוקד בזמן אמת': מצבים, חיווי חיבור, מדדים מוגדרים, מצב חי לא מוצג בדוחות",
+      "expected": "כותרת, 'מתעדכן בזמן אמת', שתי קבוצות מדדים, טאב דוחות ללא עמודת סטטוס",
+      "actual": "live badge=true, groups=true, tooltip=\"ניסיונות חיוג יוצאים שהספק יצר (agent le\", reports without status column=true",
+      "status": "עבר",
+      "evidence": "docs/qa-20260924/shots/U19-*.png",
+      "mode": "mock"
+    },
+    {
+      "id": "U20",
+      "area": "האזנה",
+      "scenario": "מנהל רואה נציג בשיחה תוך ~2ש׳, מצטרף להאזנה, לוחש בלחיצה-והחזקה, אובדן פוקוס מפסיק, יציאה לא פוגעת בשיחה",
+      "expected": "",
+      "actual": "אירוע-הוחל→שורה 'בשיחה' 76ms (כולל poll 1.5s + זמן בקשה מקומי); מחותמת הספק 96ms; row=\"דכדנה כהןצוות מכירות▶ בשיחה · 00:00רחל אברהם050-123-4533↗ יו\"; whisper audit=true; blur→listen=true; agent call alive after exit=true; monitor cleared=true",
+      "status": "עבר",
+      "evidence": "docs/qa-20260924/shots/U20-*.png",
+      "mode": "mock"
+    }
+  ]
+}

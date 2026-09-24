@@ -3,6 +3,7 @@
  * skip and outcome application. All operations are business-scoped.
  */
 import crypto from "node:crypto";
+import { lockAgent } from "./locking";
 import { Prisma } from "@/generated/prisma/client";
 import type { OutcomeKey } from "@/generated/prisma/enums";
 import { prisma, dbSchema } from "@/lib/db";
@@ -39,8 +40,8 @@ export async function assertListAccess(businessId: string, userId: string, role:
 }
 
 /** The lead currently locked by this user (at most one). */
-export async function currentLockedLead(userId: string) {
-  return prisma.listLead.findFirst({
+export async function currentLockedLead(userId: string, db: Prisma.TransactionClient = prisma) {
+  return db.listLead.findFirst({
     where: { lockedByUserId: userId, status: { in: ["locked", "in_call"] } },
     include: { contact: true, list: { select: { id: true, name: true, scriptId: true } } },
     orderBy: { updatedAt: "desc" },
@@ -59,60 +60,67 @@ export async function claimNextLead(businessId: string, userId: string, listId: 
     const next = nextDialWindowOpening(window);
     throw new ApiError("מחוץ לחלון החיוג של הרשימה", 409, "outside_dial_window", { nextOpening: next?.toISOString() ?? null, window });
   }
-  const existing = await currentLockedLead(userId);
-  if (existing) {
-    if (existing.listId !== listId) throw new ApiError("יש ליד פתוח ברשימה אחרת – סיים אותו קודם", 409, "lead_already_locked");
-    return existing;
-  }
+  return prisma.$transaction(async (tx) => {
+    await lockAgent(tx, userId);
+    const existing = await currentLockedLead(userId, tx);
+    if (existing) {
+      if (existing.listId !== listId) throw new ApiError("יש ליד פתוח ברשימה אחרת – סיים אותו קודם", 409, "lead_already_locked");
+      return existing;
+    }
 
-  const token = crypto.randomUUID();
-  const ttl = settings.lockTtlSeconds;
-  const S = dbSchema();
-  const T = (t: string) => Prisma.raw(`"${S}"."${t}"`);
-  const E = Prisma.raw(`"${S}"."LeadStatus"`);
-  const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
-    UPDATE ${T("list_leads")} SET
-      status = 'locked'::${E},
-      locked_by_user_id = ${userId},
-      lock_token = ${token},
-      lock_expires_at = now() + (${ttl} || ' seconds')::interval,
-      updated_at = now()
-    WHERE id = (
-      SELECT l.id FROM ${T("list_leads")} l
-      JOIN ${T("contacts")} c ON c.id = l.contact_id
-      WHERE l.list_id = ${listId}
-        AND l.business_id = ${businessId}
-        AND (
-          l.status IN ('pending'::${E}, 'callback'::${E})
-          OR (l.status = 'locked'::${E} AND l.lock_expires_at < now())
-        )
-        AND (l.next_attempt_at IS NULL OR l.next_attempt_at <= now())
-        AND (
-          l.preferred_user_id IS NULL
-          OR l.preferred_user_id = ${userId}
-          OR l.next_attempt_at < now() - (${CALLBACK_GRACE_MINUTES} || ' minutes')::interval
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM ${T("dnc_entries")} d WHERE d.business_id = l.business_id AND d.phone_e164 = c.phone_e164
-        )
-      ORDER BY
-        ${scoreSql(settings.prioritization, userId)} DESC,
-        l.created_at ASC
-      LIMIT 1
-      FOR UPDATE OF l SKIP LOCKED
-    )
-    RETURNING id
-  `);
-  if (rows.length === 0) return null;
-  const claimed = await prisma.listLead.findUnique({ where: { id: rows[0].id }, include: { contact: true } });
-  const { score, reason } = explainScore(settings.prioritization, claimed!, userId);
-  const lead = await prisma.listLead.update({
-    where: { id: rows[0].id },
-    data: { claimReason: reason, claimScore: score },
-    include: { contact: true, list: { select: { id: true, name: true, scriptId: true } } },
+    const list = await tx.dialList.findUniqueOrThrow({ where: { id: listId }, select: { maxAttempts: true } });
+    const maxAttempts = list.maxAttempts ?? settings.maxAttempts;
+    const token = crypto.randomUUID();
+    const ttl = settings.lockTtlSeconds;
+    const S = dbSchema();
+    const T = (t: string) => Prisma.raw(`"${S}"."${t}"`);
+    const E = Prisma.raw(`"${S}"."LeadStatus"`);
+    const rows = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+      UPDATE ${T("list_leads")} SET
+        status = 'locked'::${E},
+        locked_by_user_id = ${userId},
+        lock_token = ${token},
+        lock_expires_at = timezone('UTC', now()) + (${ttl} || ' seconds')::interval,
+        updated_at = timezone('UTC', now())
+      WHERE id = (
+        SELECT l.id FROM ${T("list_leads")} l
+        JOIN ${T("contacts")} c ON c.id = l.contact_id
+        WHERE l.list_id = ${listId}
+          AND l.business_id = ${businessId}
+          AND (
+            l.status IN ('pending'::${E}, 'callback'::${E})
+            OR (l.status = 'locked'::${E} AND l.lock_expires_at < timezone('UTC', now()))
+          )
+          AND (l.attempts < ${maxAttempts} OR l.status = 'callback'::${E})
+          AND NOT EXISTS (SELECT 1 FROM ${T("calls")} active_call WHERE active_call.lead_id = l.id AND active_call.outcome_saved_at IS NULL)
+          AND (l.next_attempt_at IS NULL OR l.next_attempt_at <= timezone('UTC', now()))
+          AND (
+            l.preferred_user_id IS NULL
+            OR l.preferred_user_id = ${userId}
+            OR l.next_attempt_at < timezone('UTC', now()) - (${CALLBACK_GRACE_MINUTES} || ' minutes')::interval
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM ${T("dnc_entries")} d WHERE d.business_id = l.business_id AND d.phone_e164 = c.phone_e164
+          )
+        ORDER BY
+          ${scoreSql(settings.prioritization, userId)} DESC,
+          l.created_at ASC
+        LIMIT 1
+        FOR UPDATE OF l SKIP LOCKED
+      )
+      RETURNING id
+    `);
+    if (rows.length === 0) return null;
+    const claimed = await tx.listLead.findUnique({ where: { id: rows[0].id }, include: { contact: true } });
+    const { score, reason } = explainScore(settings.prioritization, claimed!, userId);
+    const lead = await tx.listLead.update({
+      where: { id: rows[0].id },
+      data: { claimReason: reason, claimScore: score },
+      include: { contact: true, list: { select: { id: true, name: true, scriptId: true } } },
+    });
+    await audit(businessId, userId, "lead", rows[0].id, "lead.claimed", { listId, score, reason }, tx);
+    return lead;
   });
-  await audit(businessId, userId, "lead", rows[0].id, "lead.claimed", { listId, score, reason });
-  return lead;
 }
 
 /** Extend the lock while the agent is still working the lead. */
@@ -137,16 +145,17 @@ export async function assertLeadLock(userId: string, leadId: string, lockToken: 
 }
 
 /** Release a lead back to the queue (e.g. session ended without dialing). */
-export async function releaseLead(userId: string, leadId: string, reason: string) {
-  const lead = await prisma.listLead.findUnique({ where: { id: leadId } });
+export async function releaseLead(userId: string, leadId: string, reason: string, db: Prisma.TransactionClient = prisma) {
+  const lead = await db.listLead.findUnique({ where: { id: leadId } });
   if (!lead || lead.lockedByUserId !== userId) return false;
   if (lead.status === "in_call") return false; // never release while a call may be alive
   const back: "pending" | "callback" = lead.lastOutcome === "callback" && lead.nextAttemptAt ? "callback" : "pending";
-  await prisma.listLead.update({
-    where: { id: leadId },
+  const released = await db.listLead.updateMany({
+    where: { id: leadId, lockedByUserId: userId, status: "locked" },
     data: { status: back, lockedByUserId: null, lockToken: null, lockExpiresAt: null },
   });
-  await audit(lead.businessId, userId, "lead", leadId, "lead.released", { reason });
+  if (!released.count) return false;
+  await audit(lead.businessId, userId, "lead", leadId, "lead.released", { reason }, db);
   return true;
 }
 
@@ -157,8 +166,8 @@ export async function skipLead(businessId: string, userId: string, leadId: strin
   const settings = await getBusinessSettings(businessId);
   const list = await prisma.dialList.findUnique({ where: { id: lead.listId }, select: { retryIntervalMinutes: true } });
   const minutes = list?.retryIntervalMinutes ?? settings.retryIntervalMinutes;
-  await prisma.listLead.update({
-    where: { id: leadId },
+  const skipped = await prisma.listLead.updateMany({
+    where: { id: leadId, lockedByUserId: userId, lockToken, status: "locked" },
     data: {
       status: "pending",
       lockedByUserId: null,
@@ -169,6 +178,7 @@ export async function skipLead(businessId: string, userId: string, leadId: strin
       preferredUserId: null,
     },
   });
+  if (!skipped.count) throw new ApiError("נעילת הליד השתנתה", 409, "lock_lost");
   await audit(businessId, userId, "lead", leadId, "lead.skipped", { reason });
 }
 
@@ -180,12 +190,12 @@ export async function applyOutcomeToLead(opts: {
   outcome: OutcomeKey;
   callbackAt?: Date;
   note?: string;
-}) {
+}, db: Prisma.TransactionClient = prisma) {
   const { businessId, userId, leadId, outcome, callbackAt } = opts;
   const def = OUTCOME_BY_KEY[outcome];
-  const lead = await prisma.listLead.findUnique({ where: { id: leadId }, include: { contact: true, list: true } });
+  const lead = await db.listLead.findUnique({ where: { id: leadId }, include: { contact: true, list: true } });
   if (!lead) throw new ApiError("ליד לא נמצא", 404, "not_found");
-  const settings = await getBusinessSettings(businessId);
+  const settings = await getBusinessSettings(businessId, db);
   const maxAttempts = lead.list.maxAttempts ?? settings.maxAttempts;
   const window = { ...settings.dialWindow, ...((lead.list.dialWindowJson as Partial<DialWindow> | null) ?? {}) };
 
@@ -212,28 +222,28 @@ export async function applyOutcomeToLead(opts: {
     data = { ...data, status: "completed" };
   }
 
-  await prisma.listLead.update({ where: { id: leadId }, data });
+  await db.listLead.update({ where: { id: leadId }, data });
 
   if (def.addsToDnc) {
-    await addToDnc(businessId, userId, lead.contact.phoneE164, `outcome:${outcome}`);
+    await addToDnc(businessId, userId, lead.contact.phoneE164, `outcome:${outcome}`, db);
   }
-  await audit(businessId, userId, "lead", leadId, "lead.outcome", { outcome, callbackAt: callbackAt?.toISOString() });
+  await audit(businessId, userId, "lead", leadId, "lead.outcome", { outcome, callbackAt: callbackAt?.toISOString() }, db);
 }
 
 /** Block a number for the whole business and pull it out of every list. */
-export async function addToDnc(businessId: string, userId: string | null, phoneE164: string, reason?: string) {
-  await prisma.dncEntry.upsert({
+export async function addToDnc(businessId: string, userId: string | null, phoneE164: string, reason?: string, db: Prisma.TransactionClient = prisma) {
+  await db.dncEntry.upsert({
     where: { businessId_phoneE164: { businessId, phoneE164 } },
     create: { businessId, phoneE164, reason, createdByUserId: userId },
     update: { reason },
   });
-  const contacts = await prisma.contact.findMany({ where: { businessId, phoneE164 }, select: { id: true } });
-  await prisma.listLead.updateMany({
+  const contacts = await db.contact.findMany({ where: { businessId, phoneE164 }, select: { id: true } });
+  await db.listLead.updateMany({
     where: { businessId, contactId: { in: contacts.map((c) => c.id) }, status: { notIn: ["in_call"] } },
     data: { status: "dnc", lockedByUserId: null, lockToken: null, lockExpiresAt: null, nextAttemptAt: null, preferredUserId: null },
   });
-  await prisma.task.updateMany({ where: { businessId, contactId: { in: contacts.map((c) => c.id) }, status: "open" }, data: { status: "cancelled" } });
-  await audit(businessId, userId, "dnc", phoneE164, "dnc.added", { reason });
+  await db.task.updateMany({ where: { businessId, contactId: { in: contacts.map((c) => c.id) }, status: "open" }, data: { status: "cancelled" } });
+  await audit(businessId, userId, "dnc", phoneE164, "dnc.added", { reason }, db);
 }
 
 export async function removeFromDnc(businessId: string, userId: string, phoneE164: string) {

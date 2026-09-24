@@ -1,0 +1,1081 @@
+{
+  "summary": {
+    "total": 107,
+    "passed": 100,
+    "failed": 0,
+    "blocked": 7,
+    "missing": 0
+  },
+  "rows": [
+    {
+      "id": "M1",
+      "area": "חיוג ידני",
+      "scenario": "הקלדה בפורמט מקומי עם רווח ומקף",
+      "expected": "נרמול ל-+972501234567, המקור נשמר להצגה",
+      "actual": "status 200, toE164=+972501234567, phoneRaw=050-123 4567",
+      "status": "עבר",
+      "evidence": "call cmueuvba202kblrejpobadct8",
+      "mode": "mock"
+    },
+    {
+      "id": "M2",
+      "area": "חיוג ידני",
+      "scenario": "פורמט בינלאומי של מספר קיים",
+      "expected": "אותו איש קשר (ללא כפילות)",
+      "actual": "contacts before=1 after=1, name=לקוח ב׳ 1",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "M3",
+      "area": "חיוג ידני",
+      "scenario": "מספר עם סוגריים",
+      "expected": "נרמול תקין",
+      "actual": "200 +972521000004",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "M4",
+      "area": "חיוג ידני",
+      "scenario": "מספר ריק / קצר / לא תקין",
+      "expected": "400 עם הודעה ברורה, לא נוצרת שיחה",
+      "actual": "400:missing_destination 400:invalid_phone 400:invalid_phone 400:invalid_phone",
+      "status": "עבר",
+      "evidence": "calls 3→3",
+      "mode": "mock"
+    },
+    {
+      "id": "M5",
+      "area": "חיוג ידני",
+      "scenario": "מספר בינלאומי (ארה״ב) עם מדיניות ברירת מחדל IL בלבד",
+      "expected": "מנורמל ל-E.164 אך נדחה 403 country_not_allowed (ראה N4 להתרה)",
+      "actual": "403 country_not_allowed (US)",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "M6",
+      "area": "חיוג ידני",
+      "scenario": "לחיצה כפולה מהירה (שתי בקשות במקביל, מפתחות שונים)",
+      "expected": "נוצרת שיחה אחת בלבד",
+      "actual": "הצלחות=1 (409/200), שיחות חדשות=1",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "M7",
+      "area": "חיוג ידני",
+      "scenario": "אותו מפתח idempotency פעמיים",
+      "expected": "אותו מזהה שיחה",
+      "actual": "cmueuvtle02lclrejxe03fivs / cmueuvtle02lclrejxe03fivs",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "M8",
+      "area": "חיוג ידני",
+      "scenario": "חיוג בזמן שיחה פעילה",
+      "expected": "409 call_active",
+      "actual": "409 call_active",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "M9",
+      "area": "חיוג ידני",
+      "scenario": "חיוג מכרטיס לקוח (contactId)",
+      "expected": "שיחה עם contactId נכון ומספר יוצא של העסק",
+      "actual": "contact ok=true, from=+97239876543",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "M10",
+      "area": "חיוג ידני",
+      "scenario": "מספר יוצא של עסק אחר",
+      "expected": "400 – לא מורשה",
+      "actual": "400 invalid_from_number",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "M11",
+      "area": "חיוג ידני",
+      "scenario": "שיחות אחרונות / חיוג חוזר",
+      "expected": "המספר מופיע ב-recent",
+      "actual": "7 רשומות, כולל 0521000005=true",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "M12",
+      "area": "חיוג ידני",
+      "scenario": "מספר חסום (DNC) – ידני, מכרטיס ומליד",
+      "expected": "403 dnc_blocked בכל המסלולים",
+      "actual": "403/dnc_blocked, 403/dnc_blocked",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "M13",
+      "area": "חיוג ידני",
+      "scenario": "כפילות מספר בין כרטיסים",
+      "expected": "יצירת איש קשר עם מספר קיים → 409",
+      "actual": "409 duplicate_phone",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "M14",
+      "area": "חיוג ידני",
+      "scenario": "עסק ללא מספר יוצא",
+      "expected": "400 no_from_number",
+      "actual": "400 no_from_number",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "M15",
+      "area": "חיוג ידני",
+      "scenario": "חיוג כשהספק מנותק / מיקרופון חסום",
+      "expected": "כפתור חיוג מנוטרל והודעה ברורה",
+      "actual": "נבדק ב-UI (ראה U-סדרה); ניתוק ספק אמיתי דורש חשבון Telnyx",
+      "status": "חסום לבדיקה",
+      "evidence": "",
+      "mode": "n/a"
+    },
+    {
+      "id": "P1",
+      "area": "Preview",
+      "scenario": "התחלת סשן Preview ומשיכת ליד",
+      "expected": "ליד עם פרטי קשר, lockToken ותפוגת נעילה",
+      "actual": "lead=לקוח ב׳ 1, status=locked, calls=0 (אין חיוג אוטומטי)",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "P2",
+      "area": "Preview",
+      "scenario": "דילוג עם סיבה",
+      "expected": "הסיבה נשמרת, הליד חוזר לתור עם nextAttemptAt עתידי, attempts לא עולה",
+      "actual": "reason=לא זמן מתאים, status=pending, attempts=0, next=2026-09-24T02:01:38.615Z",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "P3",
+      "area": "Preview",
+      "scenario": "עדכון פרטי ליד לפני חיוג",
+      "expected": "PATCH נשמר ומופיע בכרטיס",
+      "actual": "200 company=חברת QA",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "P4",
+      "area": "Preview",
+      "scenario": "ליד נחסם (DNC) בזמן ההמתנה",
+      "expected": "חיוג נדחה 403 dnc_blocked והליד מסומן dnc",
+      "actual": "403 dnc_blocked, lead.status=dnc",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "P5",
+      "area": "Preview",
+      "scenario": "ליד הוסר ע״י מנהל בזמן ההמתנה",
+      "expected": "חיוג נדחה (lock_lost)",
+      "actual": "409 lock_lost",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "P6",
+      "area": "Preview",
+      "scenario": "נעילה פגה וליד נלקח ע״י נציג אחר",
+      "expected": "נציג ב׳ מקבל את הליד; לנציג א׳ lock_lost",
+      "actual": "agent4 got lead=true, agent3 dial → 409 lock_lost",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "P7",
+      "area": "Preview",
+      "scenario": "רשימה ריקה",
+      "expected": "next-lead מחזיר null",
+      "actual": "200 data=null",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "W1",
+      "area": "תותח שיחות",
+      "scenario": "התחלת סשן, משיכה וחיוג – רק שיחה אחת לנציג",
+      "expected": "שני חיוגים במקביל → אחד מצליח",
+      "actual": "הצלחות=1, שיחות חיות=1, סיום=answered",
+      "status": "עבר",
+      "evidence": "call cmueuw8ez02n0lreja79yj9xa",
+      "mode": "mock"
+    },
+    {
+      "id": "W2",
+      "area": "תותח שיחות",
+      "scenario": "מעבר לליד הבא לפני תיעוד",
+      "expected": "409 outcome_required",
+      "actual": "409 outcome_required",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "W3",
+      "area": "תותח שיחות",
+      "scenario": "שמירת תוצאה בזמן שיחה פעילה",
+      "expected": "409 call_still_active",
+      "actual": "בזמן שיחה: 409 call_still_active; אחרי ניתוק: 200",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "W4",
+      "area": "תותח שיחות",
+      "scenario": "תוצאות ספק: נענה / אין מענה / תפוס / נדחה",
+      "expected": "telephonyResult תואם, talkSeconds רק לשיחה שנענתה ונמדד מהמענה",
+      "actual": "0521000010→no_answer talk=0s | 0521000011→busy talk=0s | 0521000012→rejected talk=0s | 0521000005→answered talk=3s ring→answer 3s",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "W5",
+      "area": "תותח שיחות",
+      "scenario": "השהיה – משיכת ליד בסשן מושהה",
+      "expected": "409 session_paused",
+      "actual": "409 session_paused, presence=paused",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "W6",
+      "area": "תותח שיחות",
+      "scenario": "סיום סשן בזמן שיחה",
+      "expected": "409 call_active; אחרי ניתוק – הסשן נסגר והליד משוחרר",
+      "actual": "בזמן שיחה 409/call_active; אחרי: 200, lead.locked=false, presence=offline",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "W7",
+      "area": "תותח שיחות",
+      "scenario": "החלפת רשימה בזמן סשן",
+      "expected": "סשן חדש מחליף את הקודם והליד הקודם משוחרר",
+      "actual": "old.status=ended, lead.status=pending, locked=false",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "W8",
+      "area": "תותח שיחות",
+      "scenario": "מדיניות ניסיונות: אין מענה → ניסיון חוזר; מקסימום → מוצה",
+      "expected": "attempts=1 & nextAttemptAt≈+30ד׳; ניסיון שני → exhausted (maxAttempts=2)",
+      "actual": "#1: attempts=1 status=pending next=+30m | #2: attempts=2 status=exhausted next=+nullm",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "W9",
+      "area": "תותח שיחות",
+      "scenario": "תפוס → ניסיון חוזר לפי busyRetryMinutes (5)",
+      "expected": "nextAttemptAt ≈ +5 דק׳",
+      "actual": "provider=busy, next=+5m",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "W10",
+      "area": "תותח שיחות",
+      "scenario": "callback מנותב לנציג שקבע אותו",
+      "expected": "נציג אחר לא מקבל את הליד לפני חלון החסד; הבעלים כן",
+      "actual": "agent4 got=null, owner got=true",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "O1",
+      "area": "תוצאות",
+      "scenario": "תוצאה \"answered_interested\" משיחה על ליד",
+      "expected": "נשמרת ב-DB עם שיוך נכון, מופיעה בהיסטוריה, הליד מתעדכן, הערה נשמרת במלואה",
+      "actual": "200; provider=answered, outcome=answered_interested, note ok=true (1596 תווים), lead.status=completed, בהיסטוריה=true",
+      "status": "עבר",
+      "evidence": "call cmueuxs0i02q3lrejeztl45iv",
+      "mode": "mock"
+    },
+    {
+      "id": "O2",
+      "area": "תוצאות",
+      "scenario": "תוצאה \"answered_not_interested\" משיחה על ליד",
+      "expected": "נשמרת ב-DB עם שיוך נכון, מופיעה בהיסטוריה, הליד מתעדכן, הערה נשמרת במלואה",
+      "actual": "200; provider=busy, outcome=answered_not_interested, note ok=true (1596 תווים), lead.status=completed, בהיסטוריה=true",
+      "status": "עבר",
+      "evidence": "call cmueuxws202qilrej1x7zjz5f",
+      "mode": "mock"
+    },
+    {
+      "id": "O3",
+      "area": "תוצאות",
+      "scenario": "תוצאה \"callback\" משיחה על ליד",
+      "expected": "נשמרת ב-DB עם שיוך נכון, מופיעה בהיסטוריה, הליד מתעדכן, הערה נשמרת במלואה",
+      "actual": "200; provider=rejected, outcome=callback, note ok=true (1596 תווים), lead.status=callback, tasks=1, בהיסטוריה=true",
+      "status": "עבר",
+      "evidence": "call cmueuy06u02qtlrejbs2q1mbj",
+      "mode": "mock"
+    },
+    {
+      "id": "O4",
+      "area": "תוצאות",
+      "scenario": "תוצאה \"no_answer\" משיחה על ליד",
+      "expected": "נשמרת ב-DB עם שיוך נכון, מופיעה בהיסטוריה, הליד מתעדכן, הערה נשמרת במלואה",
+      "actual": "200; provider=answered, outcome=no_answer, note ok=true (1596 תווים), lead.status=pending, בהיסטוריה=true",
+      "status": "עבר",
+      "evidence": "call cmueuy3oh02r5lrej91qbp78d",
+      "mode": "mock"
+    },
+    {
+      "id": "O5",
+      "area": "תוצאות",
+      "scenario": "תוצאה \"busy\" משיחה על ליד",
+      "expected": "נשמרת ב-DB עם שיוך נכון, מופיעה בהיסטוריה, הליד מתעדכן, הערה נשמרת במלואה",
+      "actual": "200; provider=answered, outcome=busy, note ok=true (1596 תווים), lead.status=pending, בהיסטוריה=true",
+      "status": "עבר",
+      "evidence": "call cmueuy89z02rjlrej8bdlhvpc",
+      "mode": "mock"
+    },
+    {
+      "id": "O6",
+      "area": "תוצאות",
+      "scenario": "תוצאה \"wrong_number\" משיחה על ליד",
+      "expected": "נשמרת ב-DB עם שיוך נכון, מופיעה בהיסטוריה, הליד מתעדכן, הערה נשמרת במלואה",
+      "actual": "200; provider=answered, outcome=wrong_number, note ok=true (1596 תווים), lead.status=completed, בהיסטוריה=true",
+      "status": "עבר",
+      "evidence": "call cmueuycr702rxlrejd19x6m1g",
+      "mode": "mock"
+    },
+    {
+      "id": "O7",
+      "area": "תוצאות",
+      "scenario": "תוצאה \"sale\" משיחה על ליד",
+      "expected": "נשמרת ב-DB עם שיוך נכון, מופיעה בהיסטוריה, הליד מתעדכן, הערה נשמרת במלואה",
+      "actual": "200; provider=no_answer, outcome=sale, note ok=true (1596 תווים), lead.status=completed, בהיסטוריה=true",
+      "status": "עבר",
+      "evidence": "call cmueuyhmg02sblrejg78et8sg",
+      "mode": "mock"
+    },
+    {
+      "id": "O8",
+      "area": "תוצאות",
+      "scenario": "תוצאה \"dnc\" משיחה על ליד",
+      "expected": "נשמרת ב-DB עם שיוך נכון, מופיעה בהיסטוריה, הליד מתעדכן, הערה נשמרת במלואה",
+      "actual": "200; provider=answered, outcome=dnc, note ok=true (1596 תווים), lead.status=dnc, dnc=1, בהיסטוריה=true",
+      "status": "עבר",
+      "evidence": "call cmueuys2a02snlrejo228daig",
+      "mode": "mock"
+    },
+    {
+      "id": "O9",
+      "area": "תוצאות",
+      "scenario": "שמירה כפולה של תוצאה",
+      "expected": "השמירה השנייה לא דורסת ולא יוצרת משימה נוספת",
+      "actual": "outcome=callback, tasks=1",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "O10",
+      "area": "תוצאות",
+      "scenario": "טיוטת הערה נשמרת בשרת ונמחקת אחרי תיעוד",
+      "expected": "PUT/GET draft עובדים; אחרי outcome הטיוטה נמחקת",
+      "actual": "draft=טיוטה 123 → after outcome=\"\"",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "O11",
+      "area": "תוצאות",
+      "scenario": "מכירה אינה יוצרת הזמנה/הכנסה",
+      "expected": "אין ישות הזמנות במערכת; המדד סופר תוצאות בלבד",
+      "actual": "טבלאות: _prisma_migrations, users, dnc_entries, list_leads, dial_list_agents, contacts, dialer_sessions, businesses, tasks, telephony_events, phone_numbers, scripts, note_drafts, teams, audit_logs, dial_lists, calls, call_monitors",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "n/a"
+    },
+    {
+      "id": "T1",
+      "area": "משימות חזרה",
+      "scenario": "מועד חזרה בעבר",
+      "expected": "400 callback_in_past",
+      "actual": "עבר: 400/callback_in_past; בלי מועד: 400/callback_time_required",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "T2",
+      "area": "משימות חזרה",
+      "scenario": "אזור זמן: מועד עם offset של ישראל נשמר כרגע UTC נכון",
+      "expected": "dueAt זהה לרגע שנשלח",
+      "actual": "sent=2026-09-25T06:34:00.000+03:00 stored=2026-09-25T03:34:00.000Z",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "T3",
+      "area": "משימות חזרה",
+      "scenario": "שינוי מועד ומשימה מסומנת כבוצעה",
+      "expected": "dueAt מתעדכן וגם nextAttemptAt של הליד; done → ליד completed",
+      "actual": "next=2026-09-26T01:34:15.801Z, task=done, lead=completed",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "T4",
+      "area": "משימות חזרה",
+      "scenario": "נציג רואה רק את המשימות שלו; מנהל רואה את הצוות",
+      "expected": "agent4 לא רואה משימות של agent3; managerB רואה",
+      "actual": "agent4=0 (כולן שלו), manager=1, agent4 מבקש של agent3=0",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "D1",
+      "area": "DNC",
+      "scenario": "חסימה חלה על כל הרשימות של העסק ולא על עסק אחר עם אותו מספר",
+      "expected": "לידים של +972501234503 בעסק ב׳ → dnc; בעסק א׳ נשארים",
+      "actual": "B leads=dnc,dnc; A leads=pending; dnc in A=0; audit=1",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "D2",
+      "area": "DNC",
+      "scenario": "הרשאות: נציג לא מסיר חסימה, מנהל כן; שינוי מתועד",
+      "expected": "DELETE by agent → 403; by manager → 200 + audit",
+      "actual": "agent 403, manager 200, audit=1",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "D3",
+      "area": "DNC",
+      "scenario": "רשימת DNC למנהל בלבד",
+      "expected": "GET by agent → 403",
+      "actual": "403",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "L1",
+      "area": "רשימות",
+      "scenario": "יצירת רשימה מסינון CRM + מניעת כפילויות + סינון DNC",
+      "expected": "added = אנשי קשר במקור qa שאינם חסומים; הוספה חוזרת = 0",
+      "actual": "added=6 (צפוי 6), שוב=0",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "L2",
+      "area": "רשימות",
+      "scenario": "רשימה משויכת לנציג אחר",
+      "expected": "agent3 → 403 בהתחלת סשן; agent4 מצליח",
+      "actual": "agent3 403, agent4 200",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "L3",
+      "area": "רשימות",
+      "scenario": "חלון חיוג סגור (רשימת לילה)",
+      "expected": "next-lead → 409 outside_dial_window עם מועד הפתיחה הבא",
+      "actual": "409 outside_dial_window next=2026-09-25T00:00:00.000Z",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "L4",
+      "area": "רשימות",
+      "scenario": "נציג רואה רק רשימות משויכות אליו או פתוחות",
+      "expected": "agent3 לא רואה 'QA-B רק נציג ד׳'",
+      "actual": "QA-B רשימה, QA-L1, QA-B לילה בלבד, QA-B ריקה",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "L5",
+      "area": "רשימות",
+      "scenario": "מחיקת רשימה עם שיחה פעילה",
+      "expected": "409 list_busy; ללא שיחה → מושבתת (לא נמחקת)",
+      "actual": "busy: 409/list_busy; idle: 200, exists=true active=false",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "X1",
+      "area": "הפרדת עסקים",
+      "scenario": "נציג בעסק ב׳ ניגש לאיש קשר / שיחה / הקלטה של עסק א׳",
+      "expected": "404 בכולם",
+      "actual": "404 404 404 404",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "X2",
+      "area": "הפרדת עסקים",
+      "scenario": "רשימות/חיפוש אנשי קשר לא דולפים בין עסקים",
+      "expected": "contacts של ב׳ רק businessId ב׳; ליד מעסק א׳ לא ניתן לחיוג",
+      "actual": "contacts all B=true; dial lead of A → 409 lock_lost",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "X3",
+      "area": "הרשאות",
+      "scenario": "דשבורד מנהל: מנהל ב׳ רואה רק את עסק ב׳; מנהל בלי צוות רואה את עצמו בלבד; נציג 403",
+      "expected": "",
+      "actual": "managerB agents=3 (רק ב׳=true), lonely=1, agent=403",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "X4",
+      "area": "הרשאות",
+      "scenario": "היסטוריית שיחות לפי נראות",
+      "expected": "נציג רואה רק שלו; מנהל צוות רואה את הצוות; מנהל בלי צוות רק את עצמו",
+      "actual": "agent3=29, manager=29, lonely=0, agent3→agent4=0",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "X5",
+      "area": "הרשאות",
+      "scenario": "פעולות ניהול",
+      "expected": "agent: settings PATCH 403, users POST 403, lists POST 403, import 403; manager: users POST 403, settings PATCH 403; admin: 200",
+      "actual": "agent=403/403/403/403, manager=403/403/403, admin=200",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "X6",
+      "area": "הרשאות",
+      "scenario": "נציג עורך איש קשר שאינו שלו ולא טיפל בו",
+      "expected": "403",
+      "actual": "403 forbidden",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "X7",
+      "area": "אבטחה",
+      "scenario": "ללא cookie / cookie מזויף",
+      "expected": "401",
+      "actual": "401 401",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "X8",
+      "area": "אבטחה",
+      "scenario": "משתמש מושבת מאבד גישה מיד",
+      "expected": "401 אחרי isActive=false",
+      "actual": "לפני 200, אחרי 401",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "S1",
+      "area": "סשנים",
+      "scenario": "heartbeat מלשונית זרה",
+      "expected": "sessionOk=false session_taken",
+      "actual": "{\"sessionOk\":false,\"reason\":\"session_taken\"}",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "S2",
+      "area": "סשנים",
+      "scenario": "לשונית שנייה מתחילה סשן",
+      "expected": "הסשן הראשון מסתיים; פעולות מהלשונית הראשונה → session_ended",
+      "actual": "old tab next-lead → session_ended; state.ownedByThisTab=false",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "S3",
+      "area": "סשנים",
+      "scenario": "סגירת דפדפן: סשן ללא heartbeat נסגר, נציג offline, ליד משוחרר",
+      "expected": "אחרי reaper: session ended, presence offline, lead pending",
+      "actual": "session=ended, presence=offline, lead=pending/locked=false",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "S4",
+      "area": "סשנים",
+      "scenario": "סשן עם שיחה חיה לא נקצר ע״י ה-reaper",
+      "expected": "הסשן נשאר פעיל כל עוד השיחה חיה",
+      "actual": "session=active",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "G1",
+      "area": "מנהל",
+      "scenario": "מדדים תואמים ל-DB לפי ההגדרות המוצהרות",
+      "expected": "dials=count(calls), connected=count(answeredAt), avgTalk=sum(talk)/connected",
+      "actual": "api dials=30/30 connected=16/16 avgTalk=0 sales=1/1 rate=53%",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "G2",
+      "area": "מנהל",
+      "scenario": "מצב נציג בזמן אמת בזמן שיחה",
+      "expected": "presence=in_call + liveCall בדשבורד; אחרי סיום wrap_up",
+      "actual": "בשיחה: in_call/answered; אחרי ניתוק: wrap_up; אחרי תיעוד: available",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "H1",
+      "area": "Webhooks",
+      "scenario": "חתימה תקינה / גוף שונה / חותמת זמן ישנה",
+      "expected": "200 / 401 / 401",
+      "actual": "200 401 401",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "H2",
+      "area": "Webhooks",
+      "scenario": "אירוע כפול ואירועים בסדר הפוך (hangup לפני answered)",
+      "expected": "כפול מסומן duplicate ללא שינוי; hangup מסיים; answered מאוחר לא מחייה את השיחה",
+      "actual": "hangup→ended=true result=busy; duplicate=true; events stored=1; late answered → status=ended, answeredAt=null",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "H3",
+      "area": "Webhooks",
+      "scenario": "recording.saved מסמן הקלטה; הורדה דרך proxy מאומת בלבד",
+      "expected": "recordingStatus=saved; GET recording ע״י נציג אחר של אותו צוות → מותר למנהל, 403 לנציג אחר",
+      "actual": "status=saved id=mock-rec-cmueuzy3502w0lrejtup13l1j dur=5000ms; owner=404(recording_unavailable) other-agent=403 manager=404(recording_unavailable) – הורדה אמיתית חסומה ללא Telnyx",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "H4",
+      "area": "Webhooks",
+      "scenario": "אירוע ל-leg לא מוכר",
+      "expected": "200 ללא שינוי",
+      "actual": "200 {\"ok\":true,\"duplicate\":false,\"callId\":null}",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "H5",
+      "area": "Webhooks",
+      "scenario": "timeout בבקשת חיוג לספק → בדיקה אם נוצרה שיחה לפני ניסיון חוזר",
+      "expected": "dialPendingSince → המתנה ל-webhook → retry עם אותו command_id",
+      "actual": "דורש ספק אמיתי/פרוקסי רשת; הלוגיקה קיימת ב-reconcileCall אך לא הופעלה בבדיקה",
+      "status": "חסום לבדיקה",
+      "evidence": "",
+      "mode": "n/a"
+    },
+    {
+      "id": "A1",
+      "area": "אודיו",
+      "scenario": "אודיו דו-כיווני, השתקה בפועל, DTMF ליעד IVR, החלפת אוזניות באמצע שיחה",
+      "expected": "אודיו נשמע בשני הצדדים",
+      "actual": "אין חשבון Telnyx ומספר בדיקה מאושר",
+      "status": "חסום לבדיקה",
+      "evidence": "",
+      "mode": "n/a"
+    },
+    {
+      "id": "N1",
+      "area": "תעדוף",
+      "scenario": "סדר הגשה לפי ציון שקוף + הסבר לנציג",
+      "expected": "חזרה שהגיע מועדה לפני ליד של הנציג לפני ליד רגיל; claimReason מוסבר",
+      "actual": "סדר=callback>owner>plain; הסברים: חזרה שנקבעה להיום · ליד חדש (פחות משעה) | ליד חדש (פחות משעה) · הליד שלך | ליד חדש (פחות משעה)",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "N2",
+      "area": "בטיחות",
+      "scenario": "עצירת חיוגים ברמת העסק (kill switch)",
+      "expected": "משיכת ליד וחיוג ידני נדחים ב-409 dialing_paused; אחרי חידוש עובד",
+      "actual": "next-lead dialing_paused, dial dialing_paused, dashboard paused=true, after resume 200, audit=1",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "N3",
+      "area": "בטיחות",
+      "scenario": "השהיית רשימה בודדת",
+      "expected": "409 list_paused בהתחלת סשן; דשבורד מציג מושהית",
+      "actual": "409 list_paused; queue paused=true dueNow=0",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "N4",
+      "area": "בטיחות",
+      "scenario": "הגבלת מדינות יעד",
+      "expected": "IL בלבד → +1 נדחה 403; אחרי הוספת US → מותר",
+      "actual": "IL בלבד: 403/country_not_allowed (US); עם US: 200",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "N5",
+      "area": "בטיחות",
+      "scenario": "הגבלת קצב חיוג לנציג",
+      "expected": "maxDialsPerMinute=2 → החיוג השלישי 429",
+      "actual": "200, 200, 429/rate_limited",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "N6",
+      "area": "חלוקת עבודה",
+      "scenario": "אותו מספר בשיחה חיה אצל נציג אחר (כרטיסים כפולים)",
+      "expected": "409 number_in_call",
+      "actual": "409 number_in_call",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "N7",
+      "area": "תותח שיחות",
+      "scenario": "כשל טכני (leg הנציג נכשל לפני צלצול)",
+      "expected": "הליד חוזר לתור אחרי X דק׳, הניסיון לא נספר, אין דרישת תיעוד, נרשמה אוטומציה",
+      "actual": "call=failed autoSaved=true lead=pending attempts=0 next=+10m wrapUpRequired=false audit=1",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "N8",
+      "area": "חלוקת עבודה",
+      "scenario": "העברת ליד לנציג אחר ע״י מנהל",
+      "expected": "הנעילה משוחררת, preferredUserId=יעד, audit; הנציג היעד מקבל אותו ראשון",
+      "actual": "200; locked=null preferred=true; agent4 got it=true; audit=1",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "N9",
+      "area": "רשימות",
+      "scenario": "שכפול, ארכוב ורענון רשימה דינמית",
+      "expected": "העותק מכיל את הלידים; ארכיון → list_inactive; רענון מוסיף איש קשר חדש שעונה לסינון",
+      "actual": "copied=7/7; archived→session list_inactive; dynamic refresh added=1; frozen refresh=400/list_frozen",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "N10",
+      "area": "אוטומציות",
+      "scenario": "מכירה סוגרת את הליד בכל הרשימות האחרות ומבטלת משימות פתוחות",
+      "expected": "ליד ברשימה השנייה → completed; יומן אוטומציה",
+      "actual": "other list lead=completed; automation log=true ({\"callId\":\"cmuev10b002yqlrej9n5pqha7\",\"result\":\"ok\",\"trigger\":\"outcome:sale\",\"leadsClosed\":4})",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "N11",
+      "area": "שיחות נכנסות",
+      "scenario": "לקוח מתקשר: זיהוי, ניתוב לבעלים, קבלה, ניתוק, היסטוריה",
+      "expected": "נותב ל-agent3 (בעלים), ringing; קבל → answered; נתק → ended; direction=inbound בכרטיס",
+      "actual": "routed=routed_to_owner/true; ringing=true; accept 200; answered; ended=answered talk=2s; wrap-up=true; בהיסטוריה=true",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "N12",
+      "area": "שיחות נכנסות",
+      "scenario": "בעלים עסוק → נציג זמין אחר; אף אחד זמין → לא נענה + משימת חזרה; דחייה ע״י נציג",
+      "expected": "ניתוב ל-agent4; missed עם task; reject → ended + routingNote",
+      "actual": "busy owner → routed_to_available_agent (agent4=true); reject 200 ended=true note=rejected_by_agent; nobody → no_agent_available/no_answer, task +1, audit=1",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "N13",
+      "area": "תותח שיחות",
+      "scenario": "סיכום סשן אמיתי",
+      "expected": "dials/connected/outcomes תואמים ל-DB",
+      "actual": "dials=2 connected=2 outcomes=2 queue.total=7",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "N14",
+      "area": "מנהל",
+      "scenario": "היסטוריית שינויי הגדרות",
+      "expected": "PATCH settings יוצר רשומת audit עם diff; מוצג ב-/api/settings/history",
+      "actual": "audit +2; last diff={\"to\":30,\"from\":45}",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "N15",
+      "area": "רשימות",
+      "scenario": "ייבוא עם דוח שגיאות לפי שורה",
+      "expected": "שורות לא תקינות מדווחות עם מספר שורה וסיבה",
+      "actual": "{\"created\":1,\"updated\":0,\"invalid\":2,\"errors\":[{\"row\":2,\"phone\":\"12\",\"reason\":\"מספר טלפון לא תקין\"},{\"row\":3,\"phone\":\"abc\",\"reason\":\"מספר טלפון לא תקין\"}]}",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "N16",
+      "area": "מדדים",
+      "scenario": "מדדים מורחבים ודיוק טווח (חציית חצות, ללא ספירה כפולה)",
+      "expected": "uniqueContacts/avgRing/avgWrap/callbackAdherence מוגדרים; שיחה מאתמול 23:59 לא נספרת ב'היום'",
+      "actual": "today dials=46/46, with yesterday=47; unique=6/6; avgRing=4s avgWrap=0s gap=7s adherence={\"due\":3,\"onTime\":1,\"overdueOpen\":0,\"rate\":33}",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "N17",
+      "area": "הקלטות",
+      "scenario": "מדיניות שמירה – עבודת רקע מוחקת הקלטות ישנות",
+      "expected": "call ישן עם הקלטה → recordingStatus=none אחרי הריצה; חדש נשאר",
+      "actual": "unauth 401; job 200; old=none new=saved",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "N18",
+      "area": "עומס",
+      "scenario": "4 נציגים בשני עסקים מריצים תותח שיחות במקביל",
+      "expected": "אין ליד שנמסר פעמיים, אין שגיאות, מדידת latency",
+      "actual": "לידים שנמשכו=12 כפולים=0 שגיאות=0; next-lead latency p50=42ms p95=59ms (PostgreSQL מקומי; סימולציה)",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "N19",
+      "area": "ביצועים",
+      "scenario": "רשימה של 10,000 לידים – הקצאה ועימוד",
+      "expected": "next-lead < 3s p95, עמוד לידים < 3s, ללא כפילויות",
+      "actual": "leads=10000; DB RTT=1ms; next-lead p50=40ms p95=55ms; עמוד 100 (50 שורות)=21ms; סטטיסטיקה=27ms (dueNow=9990)",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "N20",
+      "area": "טלפוניה מתקדמת",
+      "scenario": "החזקה, העברה, ועידה, האזנה/לחישה",
+      "expected": "פעולות זמינות רק אם ממומשות",
+      "actual": "לא ממומש: Telnyx תומך דרך Conferences API; דורש החלטת מוצר ומימוש נפרד – לא מוצגים כפתורים",
+      "status": "חסום לבדיקה",
+      "evidence": "",
+      "mode": "n/a"
+    },
+    {
+      "id": "N21",
+      "area": "AI ותמלול",
+      "scenario": "תמלול, סיכום, זיהוי התנגדויות",
+      "expected": "הצעות בלבד עם מקור",
+      "actual": "אין ספק תמלול מחובר – לא מיוצרים סיכומים מדומים",
+      "status": "חסום לבדיקה",
+      "evidence": "",
+      "mode": "n/a"
+    },
+    {
+      "id": "N22",
+      "area": "WhatsApp",
+      "scenario": "הודעת המשך לפי כללי החיבור",
+      "expected": "",
+      "actual": "אין חיבור WhatsApp במערכת זו",
+      "status": "חסום לבדיקה",
+      "evidence": "",
+      "mode": "n/a"
+    },
+    {
+      "id": "R1",
+      "area": "האזנה",
+      "scenario": "הרשאות: נציג, מנהל מעסק אחר, מנהל בלי צוות, האזנה לעצמך",
+      "expected": "403 / 404 / 403 / 400 – גם בקריאת API ישירה",
+      "actual": "agent 403, other business 404, no-team manager 403, self 400/self_monitor",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "R2",
+      "area": "האזנה",
+      "scenario": "הצטרפות רק אחרי מענה; 'מאזין' רק אחרי אישור חיבור",
+      "expected": "לפני מענה 409; אחרי: connecting → listening (הדמיה ~1s); audit started+joined",
+      "actual": "early=call_not_answered; start=connecting → listening after 1478ms; live row shows monitor=listening; audit=monitor.started,monitor.joined",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "R3",
+      "area": "האזנה",
+      "scenario": "לחיצה כפולה ושיחה אחת בכל פעם",
+      "expected": "אותו monitor id; שיחה אחרת → 409 monitor_active עם המזהה הקיים",
+      "actual": "double: 200/200 same=true; other call → 409/monitor_active; active monitors=1",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "R4",
+      "area": "לחישה",
+      "scenario": "מעבר מפורש ללחישה וחזרה; יציאה לא פוגעת בשיחה",
+      "expected": "whispering + audit whisper_on; listen + whisper_off; DELETE → ended והשיחה של הנציג עדיין חיה",
+      "actual": "whisper→whispering, listen→listening, agent switch 403, stop→ended, call alive=true; audit=monitor.started,monitor.joined,monitor.whisper_on,monitor.whisper_off,monitor.ended",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "R5",
+      "area": "האזנה",
+      "scenario": "השיחה מסתיימת בזמן האזנה / בזמן התחברות",
+      "expected": "monitor → ended (call_ended) בשני המקרים; ללא שגיאה",
+      "actual": "while listening → ended/call_ended; while connecting (connecting) → ended; active monitor after=null",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "R6",
+      "area": "זמן אמת",
+      "scenario": "עדכון תוך ~2ש׳: חיוג, מענה, ניתוק משתקפים ב-/live; מונה השיחות עולה פעם אחת",
+      "expected": "השורה עוברת מחייג→בשיחה→תיעוד; outboundAttempts +1 בלבד",
+      "actual": "statuses seen: dialing→ringing→in_call; lag DB-visible→live=0ms; provider-timestamp→live=13ms (כולל עיבוד הסימולציה מקומית מול local PostgreSQL); wrap_up=true; attempts 57→58",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "R7",
+      "area": "זמן אמת",
+      "scenario": "אירוע ישן לא מחזיר שיחה שהסתיימה; אירוע כפול לא מכפיל מונים",
+      "expected": "answered מאוחר → נשאר ended; attempts ללא שינוי",
+      "actual": "call stays ended, answeredAt=null; attempts 59→59; answered 36→36; row=available",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "R8",
+      "area": "מדדים",
+      "scenario": "מדדי היום מול נתוני בדיקה ידועים (יוצאות = ניסיונות שהספק יצר; נכשלו לפני יצירה בנפרד)",
+      "expected": "",
+      "actual": "attempts 59/59, answered 36/36, failedPre 0/0, rate 61%, sales 2/2, talk 21/21",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "R9",
+      "area": "סטטוסים",
+      "scenario": "דפדפן מנותק אך השיחה חיה → מוצגים שני הנתונים; אין סיום שיחה בגלל אובדן heartbeat",
+      "expected": "status=in_call, connected=false; call.endedAt null",
+      "actual": "status=in_call connected=false call alive=true",
+      "status": "עבר",
+      "evidence": "",
+      "mode": "mock"
+    },
+    {
+      "id": "R10",
+      "area": "האזנה",
+      "scenario": "בידוד אודיו: המנהל שומע את שני הצדדים, אף צד לא שומע אותו; בלחישה רק הנציג שומע",
+      "expected": "נבדק בשלוש נקודות קצה אמיתיות",
+      "actual": "אין חשבון Telnyx ומספר בדיקה. הבידוד נאכף אצל הספק (supervisor_role monitor/whisper + whisper_call_control_ids) – מאומת מול ה-OpenAPI בלבד",
+      "status": "חסום לבדיקה",
+      "evidence": "",
+      "mode": "n/a"
+    }
+  ]
+}

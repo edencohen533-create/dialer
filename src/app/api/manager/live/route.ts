@@ -1,3 +1,4 @@
+import { businessDayStart } from "@/lib/business-day";
 import { withAuth } from "@/lib/api";
 import { ok } from "@/lib/response";
 import { prisma } from "@/lib/db";
@@ -17,6 +18,8 @@ async function cachedMetrics(key: string, f: Parameters<typeof agentMetrics>[0])
   const hit = metricsCache.get(key);
   if (hit && Date.now() - hit.at < METRICS_TTL_MS) return hit.value;
   const value = await agentMetrics(f);
+  for (const [k, v] of metricsCache) if (Date.now() - v.at >= METRICS_TTL_MS) metricsCache.delete(k);
+  if (metricsCache.size >= 200) metricsCache.delete(metricsCache.keys().next().value!);
   metricsCache.set(key, { at: Date.now(), value });
   return value;
 }
@@ -31,10 +34,10 @@ export const GET = withAuth(async ({ user }) => {
   const visible = await visibleUserIds(user);
   if (Math.random() < 0.1) await reapStaleSessions(user.businessId).catch(() => 0);
   const now = new Date();
-  const startOfToday = new Date(now);
-  startOfToday.setHours(0, 0, 0, 0);
+  const settings = await getBusinessSettings(user.businessId);
+  const startOfToday = businessDayStart(settings.timezone, now);
 
-  const [agents, liveCalls, sessions, metrics, monitor, todayFailed, settings] = await Promise.all([
+  const [agents, liveCalls, sessions, metrics, monitor, todayFailed] = await Promise.all([
     prisma.user.findMany({
       where: { businessId: user.businessId, isActive: true, role: { in: ["agent", "manager"] }, ...(visible ? { id: { in: visible } } : {}) },
       select: { id: true, fullName: true, role: true, presence: true, presenceAt: true, lastSeenAt: true, team: { select: { id: true, name: true } } },
@@ -45,10 +48,9 @@ export const GET = withAuth(async ({ user }) => {
       select: { id: true, userId: true, status: true, direction: true, toE164: true, createdAt: true, ringingAt: true, answeredAt: true, conferenceId: true, agentLegId: true, contactId: true, contact: { select: { id: true, fullName: true } }, list: { select: { id: true, name: true } }, lastEventAt: true, monitors: { where: { endedAt: null }, select: { id: true, managerId: true, mode: true, status: true, manager: { select: { fullName: true } } } } },
     }),
     prisma.dialerSession.findMany({ where: { businessId: user.businessId, status: { in: ["active", "paused"] }, ...(visible ? { userId: { in: visible } } : {}) }, select: { userId: true, mode: true, status: true, lastHeartbeatAt: true, list: { select: { id: true, name: true } } } }),
-    cachedMetrics(`${user.businessId}:${visible ? visible.join(",") : "*"}`, { businessId: user.businessId, userIds: visible, from: startOfToday }),
+    cachedMetrics(`${user.businessId}:${startOfToday.toISOString()}:${visible ? visible.join(",") : "*"}`, { businessId: user.businessId, userIds: visible, from: startOfToday }),
     activeMonitorFor(user.id),
     prisma.call.count({ where: { businessId: user.businessId, direction: "outbound", agentLegId: null, status: "failed", createdAt: { gte: startOfToday }, ...(visible ? { userId: { in: visible } } : {}) } }),
-    getBusinessSettings(user.businessId),
   ]);
   const callBy = Object.fromEntries(liveCalls.map((c) => [c.userId, c]));
   const sessBy = Object.fromEntries(sessions.map((s) => [s.userId, s]));

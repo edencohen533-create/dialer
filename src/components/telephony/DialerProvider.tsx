@@ -151,6 +151,9 @@ export function DialerProvider({ children }: { children: ReactNode }) {
   const browserSessionId = useMemo(() => getBrowserSessionId(), []);
 
   // ── Phone (WebRTC) state ─────────────────────────────────────────────
+  const connectionGeneration = useRef(0);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tokenRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [phoneStatus, setPhoneStatus] = useState<PhoneStatus>("idle");
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const [micPermission, setMicPermission] = useState<MicPermission>("unknown");
@@ -286,6 +289,9 @@ export function DialerProvider({ children }: { children: ReactNode }) {
 
   const connectPhone = useCallback(async () => {
     if (typeof window === "undefined") return;
+    const generation = ++connectionGeneration.current;
+    if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+    if (tokenRefreshTimer.current) clearTimeout(tokenRefreshTimer.current);
     setPhoneError(null);
     setPhoneStatus("connecting");
     let tok: { provider: string; simulation: boolean; token: string; sipUsername: string };
@@ -296,6 +302,7 @@ export function DialerProvider({ children }: { children: ReactNode }) {
       setPhoneError(err instanceof ApiClientError ? err.message : "לא ניתן לקבל אסימון טלפוניה");
       return;
     }
+    if (generation !== connectionGeneration.current) return;
     if (tok.simulation) {
       setPhoneStatus("simulation");
       await requestMic();
@@ -304,10 +311,14 @@ export function DialerProvider({ children }: { children: ReactNode }) {
     await requestMic();
     try {
       const mod = await import("@telnyx/webrtc");
+      if (generation !== connectionGeneration.current) return;
       const TelnyxRTC = mod.TelnyxRTC as unknown as new (o: { login_token: string; prefetchIceCandidates?: boolean }) => SdkClient;
       if (clientRef.current) {
         try {
-          clientRef.current.disconnect();
+          const previous = clientRef.current;
+          clientRef.current = null;
+          for (const event of ["telnyx.ready", "telnyx.error", "telnyx.socket.close", "telnyx.notification"]) previous.off(event);
+          await previous.disconnect();
         } catch {
           /* ignore */
         }
@@ -325,8 +336,9 @@ export function DialerProvider({ children }: { children: ReactNode }) {
       });
       client.on("telnyx.socket.close", () => {
         setPhoneStatus("disconnected");
-        setTimeout(() => {
-          if (clientRef.current === client) connectPhoneRef.current();
+        if (clientRef.current !== client || generation !== connectionGeneration.current) return;
+        reconnectTimer.current = setTimeout(() => {
+          if (clientRef.current === client && generation === connectionGeneration.current) connectPhoneRef.current();
         }, 3000);
       });
       client.on("telnyx.notification", (n: unknown) => {
@@ -367,7 +379,8 @@ export function DialerProvider({ children }: { children: ReactNode }) {
       clientRef.current = client;
       await client.connect();
       // Token lasts 24h – refresh the registration well before that.
-      setTimeout(() => clientRef.current === client && connectPhoneRef.current(), 20 * 3600 * 1000);
+      if (tokenRefreshTimer.current) clearTimeout(tokenRefreshTimer.current);
+      tokenRefreshTimer.current = setTimeout(() => clientRef.current === client && connectPhoneRef.current(), 20 * 3600 * 1000);
     } catch (err) {
       setPhoneStatus("error");
       setPhoneError((err as Error)?.message ?? "שגיאה בחיבור הטלפוניה");
@@ -381,8 +394,20 @@ export function DialerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     connectPhone();
     return () => {
+      // Invalidate all pending registrations, including reconnects started after mount.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      connectionGeneration.current++;
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      if (tokenRefreshTimer.current) clearTimeout(tokenRefreshTimer.current);
+      if (countdownTimer.current) clearInterval(countdownTimer.current);
+      if (emptyQueueRetry.current) clearTimeout(emptyQueueRetry.current);
       try {
-        clientRef.current?.disconnect();
+        const client = clientRef.current;
+        clientRef.current = null;
+        if (client) {
+          for (const event of ["telnyx.ready", "telnyx.error", "telnyx.socket.close", "telnyx.notification"]) client.off(event);
+          client.disconnect().catch(() => undefined);
+        }
       } catch {
         /* ignore */
       }
@@ -454,6 +479,7 @@ export function DialerProvider({ children }: { children: ReactNode }) {
           sessionId: s?.session && s.session.status !== "ended" ? s.session.id : undefined,
           browserSessionId,
         });
+        ownsCallRef.current.clear();
         ownsCallRef.current.add(call.id);
         setMuted(false);
         await refresh();
@@ -512,6 +538,8 @@ export function DialerProvider({ children }: { children: ReactNode }) {
       emptyQueueRetry.current = setTimeout(() => advancePowerRef.current(), 30000);
       return;
     }
+    const latest = stateRef.current;
+    if (!latest?.session || latest.session.status !== "active" || latest.session.ownedByThisTab === false || latest.activeCall || latest.wrapUpCall) return;
     await dial({ mode: "power", leadId: lead.id, lockToken: lead.lockToken ?? undefined });
   }, [dial, nextLead, browserSessionId, handleErr, refresh]);
   useEffect(() => {
@@ -545,7 +573,9 @@ export function DialerProvider({ children }: { children: ReactNode }) {
         await api.post("/api/dialer/session", { mode, listId, browserSessionId, countdownSeconds });
         setSessionTakenOver(false);
         try {
-          new BroadcastChannel("dialer").postMessage({ type: "session-started", browserSessionId });
+          const channel = new BroadcastChannel("dialer");
+          channel.postMessage({ type: "session-started", browserSessionId });
+          channel.close();
         } catch {
           /* ignore */
         }
@@ -686,19 +716,14 @@ export function DialerProvider({ children }: { children: ReactNode }) {
     async (digit: string) => {
       const s = stateRef.current;
       if (!s?.activeCall || s.activeCall.status !== "answered") return;
-      // Browser leg first (in-band), server as fallback for the provider leg.
-      try {
-        sdkCallRef.current?.dtmf(digit);
-      } catch {
-        /* ignore */
-      }
+      // One transport per keypress: sending through both SDK and server duplicates tones.
       try {
         await api.post(`/api/dialer/call/${s.activeCall.id}/dtmf`, { digits: digit });
-      } catch {
-        /* the SDK path usually suffices */
+      } catch (err) {
+        handleErr(err, "שליחת מקש לשיחה נכשלה");
       }
     },
-    [],
+    [handleErr],
   );
 
   const saveOutcome = useCallback<Ctx["saveOutcome"]>(
@@ -766,16 +791,21 @@ export function DialerProvider({ children }: { children: ReactNode }) {
       const done = await api.delete<MonitorDto>(`/api/manager/monitor/${m.id}`);
       monitorRef.current = done;
       setMonitor(done);
-    } finally {
-      setSupMedia("ended");
-      sdkCallRef.current = null;
+    } catch (err) {
+      // A failed server disconnect leaves a retryable active monitor.
+      setSupMedia("none");
+      throw err;
     }
+    setSupMedia("ended");
+    sdkCallRef.current = null;
   }, []);
   const supWhisperOn = useCallback(async () => {
     const m = monitorRef.current;
     if (!m || m.endedAt || m.status === "connecting" || whisperingRef.current) return;
     whisperingRef.current = true;
-    const upd = await api.patch<MonitorDto>(`/api/manager/monitor/${m.id}`, { mode: "whisper" }); // provider-side role switch first
+    let upd: MonitorDto;
+    try { upd = await api.patch<MonitorDto>(`/api/manager/monitor/${m.id}`, { mode: "whisper" }); }
+    catch (err) { whisperingRef.current = false; throw err; }
     monitorRef.current = upd; setMonitor(upd);
     if (whisperingRef.current) { try { sdkCallRef.current?.unmuteAudio(); } catch { /* ignore */ } }
   }, []);

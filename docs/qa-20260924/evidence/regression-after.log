@@ -1,0 +1,22 @@
+PASS R1 Paused session cannot dial a held lead 
+PASS R2 Power call requires session and lead 
+PASS R3 Session ownership cannot be omitted 
+PASS R4 Manager-paused list prevents dialing an already held lead 
+PASS R5 Wrap-up blocks a new manual call 
+PASS R6 Concurrent agents cannot call the same normalized number 
+PASS R7 Concurrent next-lead requests hold at most one lead per agent 
+PASS R8 Concurrent callback saves create one task 
+PASS R9 Reject cross-tenant contact owner before write 
+PASS R10 Reject cross-tenant list relations before write 
+PASS R11 Rejected list patch leaves caller ID unchanged 
+PASS R12 Reject cross-tenant user team 
+PASS R13 Simulation endpoint cannot route into another tenant 
+PASS R14 Recording webhook retains provider recording ID 
+PASS R15 Concurrent session starts leave one live session 
+PASS R16 Future retry and owner grace use UTC on a non-UTC database 
+PASS R17 Failed outcome transaction keeps summary and task unsaved 
+PASS R18 An inbound number cannot be registered to a second tenant 
+PASS R19 Cross-tenant import owner is rejected atomically 
+PASS R20 Exhausted attempt count cannot reenter the queue as pending 
+PASS R21 Expired signed session is rejected by direct API 
+PASS R22 Contact card cannot expose another agent's private follow-up task 

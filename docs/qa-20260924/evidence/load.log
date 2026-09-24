@@ -1,0 +1,4 @@
+{"concurrency":1,"cyclesPerAgent":3,"seconds":1.923,"requestCount":41,"requestsPerSecond":21.3,"apiLatencyMs":{"p50":70,"p95":236,"max":236},"claimed":3,"duplicateClaims":0,"liveCalls":0,"errors":[]}
+{"concurrency":5,"cyclesPerAgent":3,"seconds":6.802,"requestCount":205,"requestsPerSecond":30.1,"apiLatencyMs":{"p50":153,"p95":662,"max":2004},"claimed":15,"duplicateClaims":0,"liveCalls":0,"errors":[]}
+{"concurrency":10,"cyclesPerAgent":3,"seconds":10.293,"requestCount":410,"requestsPerSecond":39.8,"apiLatencyMs":{"p50":251,"p95":1063,"max":1687},"claimed":30,"duplicateClaims":0,"liveCalls":0,"errors":[]}
+{"concurrency":20,"cyclesPerAgent":3,"seconds":8.416,"requestCount":820,"requestsPerSecond":97.4,"apiLatencyMs":{"p50":219,"p95":625,"max":1220},"claimed":60,"duplicateClaims":0,"liveCalls":0,"errors":[]}

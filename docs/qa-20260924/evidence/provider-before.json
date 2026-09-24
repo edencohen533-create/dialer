@@ -1,0 +1,30 @@
+{
+  "at": "2026-09-24T01:22:25.406Z",
+  "mode": "injected provider transport; zero external calls",
+  "rows": [
+    {
+      "id": "F1",
+      "name": "Immediate hangup before agent answers reaches terminal state",
+      "status": "נכשל",
+      "detail": "null == true"
+    },
+    {
+      "id": "F2",
+      "name": "Early agent webhook cannot be overwritten by dial response",
+      "status": "נכשל",
+      "detail": "The expression evaluated to a falsy value:\n\n  test(\"F4\",\"Unknown dial timeout never redials beyond provider deduplication window\",async()=>{\n  mockAdapter.dialAgent=async()=>{throw new TelephonyRequestTimeout();};\n  const c=await dial();await db.call.update({where:{id:c.id},data:{createdAt:new Date(Date.now()-120000),dialPendingSince:new Date(Date.now()-90000)}});\n  // Substitute the provider transport, so this fault injection cannot contact Telnyx.\n  const orig=telnyxAdapter.dialAgent;let dials=0;\n  telnyxAdapter.dialAgent=async()=>{dials++;throw new TelephonyRequestTimeout();};\n  const env={...process.env};\n  for(const key of [\"TELNYX_API_KEY\",\"TELNYX_PUBLIC_KEY\",\"TELNYX_CALL_CONTROL_APP_ID\",\"TELNYX_CREDENTIAL_CONNECTION_ID\"])process.env[key]=\"test-only-no-network\";\n  process.env.TELEPHONY_PROVIDER=\"telnyx\";\n  try { await reconcileCall(c.id);assert.equal(dials,0);assert.ok((await db.call.findUniqueOrThrow({where:{id:c.id}})).activeForUser); }\n  finally { telnyxAdapter.dialAgent=orig; for(const key of [\"TELEPHONY_PROVIDER\",\"TELNYX_API_KEY\",\"TELNYX_PUBLIC_KEY\",\"TELNYX_CALL_CONTROL_APP_ID\",\"TELNYX_CREDENTIAL_CONNECTION_ID\"])process.env[key]=env[key]; }\n  })\n"
+    },
+    {
+      "id": "F3",
+      "name": "A failed finalization side effect is retried on event redelivery",
+      "status": "נכשל",
+      "detail": "Expected values to be strictly equal:\n+ actual - expected\n\n+ 'in_call'\n- 'wrap_up'"
+    },
+    {
+      "id": "F4",
+      "name": "Unknown dial timeout never redials beyond provider deduplication window",
+      "status": "נכשל",
+      "detail": "Expected values to be strictly equal:\n\n1 !== 0\n"
+    }
+  ]
+}

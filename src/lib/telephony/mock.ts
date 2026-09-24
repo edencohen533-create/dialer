@@ -101,6 +101,8 @@ export function dueMockEvents(call: {
     ...extra,
   });
 
+  if (call.hangupRequestedAt && !call.leadLegId) return [mk("agent-hangup", "leg.hangup", "agent", { hangupCause: "originator_cancel", hangupSource: "caller" })];
+
   // 1. Agent leg answered (browser auto-answer)
   if (now - t0 >= MOCK_TIMELINE.agentAnswerMs) events.push(mk("agent-answered", "leg.answered", "agent"));
 

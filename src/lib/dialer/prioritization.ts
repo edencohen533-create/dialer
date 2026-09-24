@@ -21,8 +21,8 @@ export function scoreSql(w: PrioritizationWeights, userId: string) {
   return Prisma.sql`(
       (CASE WHEN l.status = 'callback'::${E} THEN ${w.callbackDue}::float ELSE 0 END)
     + l.priority * ${w.priority}::float
-    + (CASE WHEN l.attempts = 0 THEN LEAST(EXTRACT(EPOCH FROM (now() - l.created_at)) / 3600.0, ${w.newLeadMaxHours}::float) * ${w.newLeadPerHour}::float ELSE 0 END)
-    + LEAST(EXTRACT(EPOCH FROM (now() - COALESCE(l.last_attempt_at, l.created_at))) / 3600.0, ${w.agingMaxHours}::float) * ${w.agingPerHour}::float
+    + (CASE WHEN l.attempts = 0 THEN LEAST(EXTRACT(EPOCH FROM (timezone('UTC', now()) - l.created_at)) / 3600.0, ${w.newLeadMaxHours}::float) * ${w.newLeadPerHour}::float ELSE 0 END)
+    + LEAST(EXTRACT(EPOCH FROM (timezone('UTC', now()) - COALESCE(l.last_attempt_at, l.created_at))) / 3600.0, ${w.agingMaxHours}::float) * ${w.agingPerHour}::float
     - l.attempts * ${w.attemptPenalty}::float
     + (CASE WHEN c.owner_user_id = ${userId} THEN ${w.ownerMatch}::float ELSE 0 END)
     + (CASE WHEN l.last_outcome = 'answered_interested'::${O} THEN ${w.interestedBefore}::float ELSE 0 END)

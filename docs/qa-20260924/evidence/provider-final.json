@@ -1,0 +1,36 @@
+{
+  "at": "2026-09-24T01:52:40.896Z",
+  "mode": "injected provider transport; zero external calls",
+  "rows": [
+    {
+      "id": "F1",
+      "name": "Immediate hangup before agent answers reaches terminal state",
+      "status": "עבר"
+    },
+    {
+      "id": "F2",
+      "name": "Early agent webhook cannot be overwritten by dial response",
+      "status": "עבר"
+    },
+    {
+      "id": "F3",
+      "name": "A failed finalization side effect is retried on event redelivery",
+      "status": "עבר"
+    },
+    {
+      "id": "F4",
+      "name": "Unknown dial timeout never redials beyond provider deduplication window",
+      "status": "עבר"
+    },
+    {
+      "id": "F5",
+      "name": "Business day boundaries are independent of server timezone and DST",
+      "status": "עבר"
+    },
+    {
+      "id": "F6",
+      "name": "Failed supervisor hangup does not report a successful disconnect",
+      "status": "עבר"
+    }
+  ]
+}

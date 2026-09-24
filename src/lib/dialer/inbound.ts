@@ -18,7 +18,13 @@ const AGENT_RING_SECONDS = 25;
 
 export async function handleInboundInitiated(ev: ProviderEvent) {
   const toE164 = normalizePhone(ev.to ?? "") ?? ev.to ?? "";
-  const number = await prisma.phoneNumber.findFirst({ where: { e164: toE164, isActive: true }, include: { business: { select: { id: true, name: true } } } });
+  const numbers = await prisma.phoneNumber.findMany({ where: { e164: toE164, isActive: true }, include: { business: { select: { id: true, name: true } } }, take: 2 });
+  // Never pick an arbitrary tenant when legacy data contains an ambiguous number.
+  if (numbers.length > 1) {
+    await getTelephony().hangupLeg(ev.legId, `ambiguous-number-${ev.legId}`);
+    return null;
+  }
+  const number = numbers[0];
   if (!number) {
     console.warn("[inbound] unknown destination number", ev.to);
     return null;
@@ -45,14 +51,15 @@ export async function handleInboundInitiated(ev: ProviderEvent) {
 
   // Agent selection: owner first (if available), then any available agent of the business.
   const candidates = await prisma.user.findMany({
-    where: { businessId, isActive: true, presence: "available", role: { in: ["agent", "manager"] }, sipUsername: { not: null } },
+    where: { businessId, isActive: true, presence: "available", lastSeenAt: { gte: new Date(Date.now() - 75_000) }, role: { in: ["agent", "manager"] }, sipUsername: { not: null } },
     select: { id: true, sipUsername: true, fullName: true, role: true },
   });
   const liveUsers = new Set((await prisma.call.findMany({ where: { businessId, endedAt: null }, select: { userId: true } })).map((c) => c.userId));
   // "Available for work" = has a live (not paused) dialer session and no call. Presence alone is not enough:
   // a manager who merely ended a manual call must not receive customers' inbound calls.
-  const working = new Set((await prisma.dialerSession.findMany({ where: { businessId, status: "active" }, select: { userId: true } })).map((s) => s.userId));
-  const free = candidates.filter((u) => working.has(u.id) && !liveUsers.has(u.id));
+  const working = new Set((await prisma.dialerSession.findMany({ where: { businessId, status: "active", lastHeartbeatAt: { gte: new Date(Date.now() - 75_000) } }, select: { userId: true } })).map((s) => s.userId));
+  const wrapping = new Set((await prisma.call.findMany({ where: { businessId, endedAt: { not: null }, outcomeSavedAt: null }, select: { userId: true } })).map(c => c.userId));
+  const free = candidates.filter((u) => working.has(u.id) && !liveUsers.has(u.id) && !wrapping.has(u.id));
   const owner = settings.inbound.preferOwner && contact?.ownerUserId ? free.find((u) => u.id === contact!.ownerUserId) : undefined;
   // Agents before managers; managers only take inbound calls when no agent is free.
   const agent = owner ?? free.find((u) => u.role === "agent") ?? free[0];

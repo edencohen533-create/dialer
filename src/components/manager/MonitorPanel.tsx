@@ -71,8 +71,12 @@ export function MonitorPanel({ onClose, agentName, contactName, callAnsweredAt, 
   }, [display]);
 
   async function leave() {
-    await supervisor.stop().catch((e) => setErr((e as Error).message));
-    onClose();
+    try {
+      await supervisor.stop();
+      onClose();
+    } catch (e) {
+      setErr((e as Error).message);
+    }
   }
 
   return (

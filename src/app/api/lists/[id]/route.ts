@@ -1,3 +1,4 @@
+import { assertTenantReferences } from "@/lib/tenant-references";
 import { z } from "zod";
 import { withAuth, parseBody } from "@/lib/api";
 import { ok, ApiError } from "@/lib/response";
@@ -35,6 +36,7 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
   const b = await parseBody(req, patchSchema);
   const list = await prisma.dialList.findFirst({ where: { id: params.id, businessId: user.businessId } });
   if (!list) throw new ApiError("רשימה לא נמצאה", 404, "not_found");
+  await assertTenantReferences(user.businessId, { scriptId: b.scriptId, phoneNumberId: b.phoneNumberId });
   const updated = await prisma.dialList.update({
     where: { id: list.id },
     data: {
@@ -52,10 +54,6 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
       ...(b.archived !== undefined ? { archivedAt: b.archived ? new Date() : null, isActive: b.archived ? false : list.isActive } : {}),
     },
   });
-  if (b.phoneNumberId) {
-    const n = await prisma.phoneNumber.findFirst({ where: { id: b.phoneNumberId, businessId: user.businessId } });
-    if (!n) throw new ApiError("מספר יוצא לא שייך לעסק", 400, "invalid_from_number");
-  }
   return ok(updated);
 }, { minRole: "manager" });
 

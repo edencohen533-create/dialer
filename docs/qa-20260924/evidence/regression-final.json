@@ -1,0 +1,137 @@
+{
+  "at": "2026-09-24T01:58:12.738Z",
+  "rows": [
+    {
+      "id": "R1",
+      "name": "Paused session cannot dial a held lead",
+      "status": "עבר",
+      "mode": "mock/API/local PostgreSQL"
+    },
+    {
+      "id": "R2",
+      "name": "Power call requires session and lead",
+      "status": "עבר",
+      "mode": "mock/API/local PostgreSQL"
+    },
+    {
+      "id": "R3",
+      "name": "Session ownership cannot be omitted",
+      "status": "עבר",
+      "mode": "mock/API/local PostgreSQL"
+    },
+    {
+      "id": "R4",
+      "name": "Manager-paused list prevents dialing an already held lead",
+      "status": "עבר",
+      "mode": "mock/API/local PostgreSQL"
+    },
+    {
+      "id": "R5",
+      "name": "Wrap-up blocks a new manual call",
+      "status": "עבר",
+      "mode": "mock/API/local PostgreSQL"
+    },
+    {
+      "id": "R6",
+      "name": "Concurrent agents cannot call the same normalized number",
+      "status": "עבר",
+      "mode": "mock/API/local PostgreSQL"
+    },
+    {
+      "id": "R7",
+      "name": "Concurrent next-lead requests hold at most one lead per agent",
+      "status": "עבר",
+      "mode": "mock/API/local PostgreSQL"
+    },
+    {
+      "id": "R8",
+      "name": "Concurrent callback saves create one task",
+      "status": "עבר",
+      "mode": "mock/API/local PostgreSQL"
+    },
+    {
+      "id": "R9",
+      "name": "Reject cross-tenant contact owner before write",
+      "status": "עבר",
+      "mode": "mock/API/local PostgreSQL"
+    },
+    {
+      "id": "R10",
+      "name": "Reject cross-tenant list relations before write",
+      "status": "עבר",
+      "mode": "mock/API/local PostgreSQL"
+    },
+    {
+      "id": "R11",
+      "name": "Rejected list patch leaves caller ID unchanged",
+      "status": "עבר",
+      "mode": "mock/API/local PostgreSQL"
+    },
+    {
+      "id": "R12",
+      "name": "Reject cross-tenant user team",
+      "status": "עבר",
+      "mode": "mock/API/local PostgreSQL"
+    },
+    {
+      "id": "R13",
+      "name": "Simulation endpoint cannot route into another tenant",
+      "status": "עבר",
+      "mode": "mock/API/local PostgreSQL"
+    },
+    {
+      "id": "R14",
+      "name": "Recording webhook retains provider recording ID",
+      "status": "עבר",
+      "mode": "mock/API/local PostgreSQL"
+    },
+    {
+      "id": "R15",
+      "name": "Concurrent session starts leave one live session",
+      "status": "עבר",
+      "mode": "mock/API/local PostgreSQL"
+    },
+    {
+      "id": "R16",
+      "name": "Future retry and owner grace use UTC on a non-UTC database",
+      "status": "עבר",
+      "mode": "mock/API/local PostgreSQL"
+    },
+    {
+      "id": "R17",
+      "name": "Failed outcome transaction keeps summary and task unsaved",
+      "status": "עבר",
+      "mode": "mock/API/local PostgreSQL"
+    },
+    {
+      "id": "R18",
+      "name": "An inbound number cannot be registered to a second tenant",
+      "status": "עבר",
+      "mode": "mock/API/local PostgreSQL"
+    },
+    {
+      "id": "R19",
+      "name": "Cross-tenant import owner is rejected atomically",
+      "status": "עבר",
+      "mode": "mock/API/local PostgreSQL"
+    },
+    {
+      "id": "R20",
+      "name": "Exhausted attempt count cannot reenter the queue as pending",
+      "status": "עבר",
+      "mode": "mock/API/local PostgreSQL"
+    },
+    {
+      "id": "R21",
+      "name": "Expired signed session is rejected by direct API",
+      "status": "עבר",
+      "mode": "mock/API/local PostgreSQL"
+    },
+    {
+      "id": "R22",
+      "name": "Contact card cannot expose another agent's private follow-up task",
+      "status": "עבר",
+      "mode": "mock/API/local PostgreSQL"
+    }
+  ]
+}

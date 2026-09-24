@@ -1,0 +1,6 @@
+PASS B1 Reload during a call retains the same call and does not dial again
+PASS B2 Offline manager marks data stale; reconnect catches the ended call
+PASS B6 Draft save failure is visible and local note survives reload
+PASS B3 Failed outcome save keeps note and wrap-up; retry persists exactly once
+PASS B4 Desktop Hebrew layout fits 1366px and navigation does not multiply polling
+PASS B5 Browser without a session returns to login

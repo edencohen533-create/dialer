@@ -2,6 +2,7 @@
  * Provider event processor. Idempotent (unique provider event id) and
  * order-tolerant: state only moves forward, and a hangup always finalizes.
  */
+import { lockAgent } from "@/lib/dialer/locking";
 import { Prisma } from "@/generated/prisma/client";
 import type { CallStatus, TelephonyResult } from "@/generated/prisma/enums";
 import { prisma, dbSchema } from "@/lib/db";
@@ -97,6 +98,7 @@ export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessRe
         routed = await handleInboundInitiated(ev);
       } catch (err) {
         console.error("[events] inbound routing failed", err);
+        throw err;
       }
     }
     await prisma.telephonyEvent.update({
@@ -117,10 +119,13 @@ export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessRe
     const rows = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`SELECT id FROM ${Prisma.raw(`"${dbSchema()}"."calls"`)} WHERE id = ${call.id} FOR UPDATE`);
     if (rows.length === 0) return null;
     const c = (await tx.call.findUnique({ where: { id: call.id } }))!;
-    if (c.endedAt && ev.type !== "recording.saved") return { c, action: "none" as const };
+    if (c.endedAt && ev.type !== "recording.saved") return { c, action: "finalized" as const };
 
     const now = ev.occurredAt ?? new Date();
     const data: Prisma.CallUpdateInput = { lastEventAt: new Date() };
+    // Webhooks can arrive before the HTTP dial response (or be the only response).
+    if (leg === "agent" && !c.agentLegId) data.agentLegId = ev.legId;
+    if (leg === "lead" && !c.leadLegId) data.leadLegId = ev.legId;
     let action: "none" | "dial_lead" | "hangup_lead" | "hangup_agent" | "finalized" | "setup_inbound" = "none";
 
     if (leg === "agent") {
@@ -200,6 +205,7 @@ export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessRe
         }
         case "recording.saved":
           data.recordingStatus = "saved";
+          if (ev.recordingId) data.recordingId = ev.recordingId;
           if (ev.recordingDurationMs !== undefined) data.recordingDurationMs = ev.recordingDurationMs;
           break;
         case "conference.joined":
@@ -219,11 +225,6 @@ export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessRe
     return { c: updated, action };
   });
 
-  await prisma.telephonyEvent.update({
-    where: { provider_providerEventId: { provider: ev.provider, providerEventId: ev.eventId } },
-    data: { processedAt: new Date() },
-  });
-
   if (!outcome) return { duplicate: false, callId: call.id };
 
   // 4. Side effects outside the transaction.
@@ -241,6 +242,14 @@ export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessRe
   } else if (outcome.action === "finalized") {
     await afterCallFinalized(outcome.c.id);
   }
+  if (outcome.c.hangupRequestedAt && !outcome.c.endedAt && ev.type !== "leg.hangup" && (leg === "agent" || leg === "lead")) {
+    await telephony.hangupLeg(ev.legId, `${call.id}-hangup-${leg}`);
+  }
+  await prisma.telephonyEvent.update({
+    where: { provider_providerEventId: { provider: ev.provider, providerEventId: ev.eventId } },
+    data: { processedAt: new Date() },
+  });
+
   return { duplicate: false, callId: call.id };
 }
 
@@ -267,14 +276,14 @@ export async function dialLeadLeg(callId: string) {
       record: settings.recordingEnabled,
       amd: settings.amdEnabled,
     });
+    await prisma.call.updateMany({ where: { id: call.id, endedAt: null, status: { in: ["created", "dialing_agent", "agent_connected"] } }, data: { status: "dialing_lead" } });
     await prisma.call.update({
       where: { id: call.id },
       data: {
         leadLegId: r.legId,
         leadDialedAt: new Date(),
         providerSessionId: r.providerSessionId ?? call.providerSessionId,
-        recordingId: r.recordingId ?? null,
-        status: "dialing_lead",
+        ...(r.recordingId ? { recordingId: r.recordingId } : {}),
         dialPendingSince: null,
       },
     });
@@ -317,31 +326,37 @@ export async function afterCallFinalized(callId: string) {
     }
   }
   const settings = await getBusinessSettings(call.businessId);
-  // Technical failure policy: provider failed before the lead ever rang → no wrap-up needed,
-  // the attempt is not counted and the lead returns to the queue after a short delay.
-  const technicalFailure = call.status === "failed" && !call.ringingAt && !call.answeredAt && !call.outcomeSavedAt;
-  if (technicalFailure) {
-    await prisma.call.update({ where: { id: call.id }, data: { outcomeSavedAt: new Date(), outcomeNote: `כשל טכני: ${call.failureReason ?? call.hangupCause ?? "unknown"}` } });
-    if (call.leadId) {
-      await prisma.listLead.updateMany({
-        where: { id: call.leadId, lockedByUserId: call.userId },
-        data: { status: "pending", attempts: { decrement: 1 }, nextAttemptAt: new Date(Date.now() + settings.technicalFailureRetryMinutes * 60_000), lockedByUserId: null, lockToken: null, lockExpiresAt: null },
+  await prisma.$transaction(async (tx) => {
+    await lockAgent(tx, call.userId);
+    const fresh = await tx.call.findUniqueOrThrow({ where: { id: callId } });
+    if (fresh.outcomeSavedAt || !fresh.endedAt) return;
+    const currentCall = fresh;
+    // Technical failure policy: provider failed before the lead ever rang → no wrap-up needed,
+    // the attempt is not counted and the lead returns to the queue after a short delay.
+    const technicalFailure = currentCall.status === "failed" && !currentCall.ringingAt && !currentCall.answeredAt && !currentCall.outcomeSavedAt;
+    if (technicalFailure) {
+      await tx.call.update({ where: { id: currentCall.id }, data: { outcomeSavedAt: new Date(), outcomeNote: `כשל טכני: ${currentCall.failureReason ?? currentCall.hangupCause ?? "unknown"}` } });
+      if (currentCall.leadId) {
+        await tx.listLead.updateMany({
+          where: { id: currentCall.leadId, lockedByUserId: currentCall.userId },
+          data: { status: "pending", attempts: { decrement: 1 }, nextAttemptAt: new Date(Date.now() + settings.technicalFailureRetryMinutes * 60_000), lockedByUserId: null, lockToken: null, lockExpiresAt: null },
+        });
+      }
+      await tx.user.updateMany({ where: { id: currentCall.userId, presence: "in_call" }, data: { presence: "available", presenceAt: new Date() } });
+      const { audit } = await import("@/lib/audit");
+      await audit(currentCall.businessId, null, "automation", currentCall.id, "automation.technical_failure_requeued", { trigger: "call.failed", leadId: currentCall.leadId, retryMinutes: settings.technicalFailureRetryMinutes, reason: currentCall.failureReason, result: "ok" }, tx);
+      return;
+    }
+    if (currentCall.leadId) {
+      // Keep the lead locked for wrap-up; the outcome save releases it.
+      await tx.listLead.updateMany({
+        where: { id: currentCall.leadId, status: "in_call", lockedByUserId: currentCall.userId },
+        data: { status: "locked", lockExpiresAt: new Date(Date.now() + (settings.wrapUpSeconds + settings.lockTtlSeconds) * 1000) },
       });
     }
-    await prisma.user.updateMany({ where: { id: call.userId, presence: "in_call" }, data: { presence: "available", presenceAt: new Date() } });
-    const { audit } = await import("@/lib/audit");
-    await audit(call.businessId, null, "automation", call.id, "automation.technical_failure_requeued", { trigger: "call.failed", leadId: call.leadId, retryMinutes: settings.technicalFailureRetryMinutes, reason: call.failureReason, result: "ok" });
-    return;
-  }
-  if (call.leadId) {
-    // Keep the lead locked for wrap-up; the outcome save releases it.
-    await prisma.listLead.updateMany({
-      where: { id: call.leadId, status: "in_call", lockedByUserId: call.userId },
-      data: { status: "locked", lockExpiresAt: new Date(Date.now() + (settings.wrapUpSeconds + settings.lockTtlSeconds) * 1000) },
+    await tx.user.updateMany({
+      where: { id: currentCall.userId, presence: "in_call" },
+      data: { presence: "wrap_up", presenceAt: new Date() },
     });
-  }
-  await prisma.user.updateMany({
-    where: { id: call.userId, presence: "in_call" },
-    data: { presence: "wrap_up", presenceAt: new Date() },
   });
 }
