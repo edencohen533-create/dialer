@@ -140,6 +140,8 @@ model Business {
   sessions     DialerSession[]
   calls        Call[]
   tasks        Task[]
+  numberOrders NumberOrder[]
+  numberConnection NumberConnection?
   phoneNumbers PhoneNumber[]
   scripts      Script[]
   events       TelephonyEvent[]
@@ -271,6 +273,7 @@ model DialList {
   scriptId             String?  @map("script_id")
   /// Outbound caller id for this list/campaign (falls back to the business default).
   phoneNumberId        String?  @map("phone_number_id")
+  numberPolicy         Json     @default("{}") @map("number_policy")
   /// Dynamic lists re-apply filterJson on refresh; frozen lists keep their membership.
   isDynamic            Boolean  @default(false) @map("is_dynamic")
   isPaused             Boolean  @default(false) @map("is_paused")
@@ -391,6 +394,7 @@ model Call {
   toE164        String  @map("to_e164")
   fromE164      String  @map("from_e164")
   phoneNumberId String? @map("phone_number_id")
+  numberSelectionReason String? @map("number_selection_reason")
 
   status          CallStatus       @default(created)
   telephonyResult TelephonyResult? @map("telephony_result")
@@ -444,6 +448,7 @@ model Call {
   @@index([businessId, createdAt])
   @@index([userId, createdAt])
   @@index([contactId, createdAt])
+  @@index([businessId, phoneNumberId, createdAt])
   @@index([leadId])
   @@index([userId, endedAt, outcomeSavedAt])
   @@index([agentLegId])
@@ -537,6 +542,22 @@ model PhoneNumber {
   provider   TelephonyProvider @default(telnyx)
   isDefault  Boolean           @default(false) @map("is_default")
   isActive   Boolean           @default(true) @map("is_active")
+  outboundPaused Boolean @default(false) @map("outbound_paused")
+  verificationStatus String @default("unverified") @map("verification_status")
+  verifiedAt DateTime? @map("verified_at")
+  providerNumberId String? @map("provider_number_id")
+  providerData Json? @map("provider_data")
+  costs Json?
+  assignedUserId String? @map("assigned_user_id")
+  callbackUserId String? @map("callback_user_id")
+  maxConcurrent Int? @map("max_concurrent")
+  maxDailyAttempts Int? @map("max_daily_attempts")
+  lastSelectedAt DateTime? @map("last_selected_at")
+  reputationStatus String @default("unsupported") @map("reputation_status")
+  reputationSource String @default("truecaller") @map("reputation_source")
+  reputationCheckedAt DateTime? @map("reputation_checked_at")
+  reputationData Json? @map("reputation_data")
+  reputationReview String? @map("reputation_review")
   createdAt  DateTime          @default(now()) @map("created_at")
 
   business Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -594,4 +615,37 @@ model AuditLog {
 
   @@index([businessId, entityType, entityId])
   @@map("audit_logs")
+}
+
+
+// Credentials remain server environment secrets; this row records an actual check, not key presence.
+model NumberConnection {
+  businessId String @id @map("business_id")
+  status String @default("unverified")
+  checkedAt DateTime? @map("checked_at")
+  error String?
+  fingerprint String?
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  @@map("number_connections")
+}
+
+model NumberOrder {
+  id String @id @default(cuid())
+  businessId String @map("business_id")
+  provider String @default("telnyx")
+  e164 String
+  state String @default("quoted")
+  quote Json
+  expiresAt DateTime @map("expires_at")
+  confirmedBy String? @map("confirmed_by")
+  confirmedAt DateTime? @map("confirmed_at")
+  providerOrderId String? @map("provider_order_id")
+  providerStatus String? @map("provider_status")
+  error String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  @@unique([businessId, provider, e164])
+  @@index([businessId, createdAt])
+  @@map("number_orders")
 }

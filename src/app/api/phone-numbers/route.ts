@@ -8,7 +8,7 @@ import { Prisma } from "@/generated/prisma/client";
 export const dynamic = "force-dynamic";
 
 export const GET = withAuth(async ({ user }) => {
-  const items = await prisma.phoneNumber.findMany({ where: { businessId: user.businessId }, orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }] });
+  const items = await prisma.phoneNumber.findMany({ where: { businessId: user.businessId }, select: {id:true,e164:true,label:true,provider:true,isDefault:true,isActive:true}, orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }] });
   return ok(items);
 });
 
@@ -23,7 +23,7 @@ export const POST = withAuth(async ({ req, user }) => {
     await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${"phone-number:" + e164}, 0))`);
     if (await tx.phoneNumber.findFirst({ where: { e164 } })) throw new ApiError("המספר כבר רשום במערכת", 409, "number_already_registered");
     if (b.isDefault || count === 0) await tx.phoneNumber.updateMany({ where: { businessId: user.businessId }, data: { isDefault: false } });
-    return tx.phoneNumber.create({ data: { businessId: user.businessId, e164, label: b.label || null, isDefault: Boolean(b.isDefault) || count === 0 } });
+    return tx.phoneNumber.create({ data: { businessId: user.businessId, e164, isActive: process.env.TELEPHONY_PROVIDER !== "telnyx", label: b.label || null, isDefault: Boolean(b.isDefault) || count === 0 } });
   });
   return ok(n, 201);
 }, { minRole: "admin" });

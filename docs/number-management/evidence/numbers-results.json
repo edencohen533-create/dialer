@@ -1,0 +1,126 @@
+{
+  "at": "2026-09-24T02:52:56.343Z",
+  "mode": "local PostgreSQL, HTTP APIs, injected provider; no purchases or external calls",
+  "rows": [
+    {
+      "id": "NUM1",
+      "name": "Agent cannot manage numbers and another tenant cannot mutate them",
+      "status": "עבר"
+    },
+    {
+      "id": "NUM2",
+      "name": "Configuration alone never claims verified connection; no credentials in response",
+      "status": "עבר"
+    },
+    {
+      "id": "NUM3",
+      "name": "Three parallel reservations use three numbers and respect concurrent cap",
+      "status": "עבר"
+    },
+    {
+      "id": "NUM4",
+      "name": "Lead retains its prior caller ID",
+      "status": "עבר"
+    },
+    {
+      "id": "NUM5",
+      "name": "Paused, inactive and daily exhausted numbers are skipped",
+      "status": "עבר"
+    },
+    {
+      "id": "NUM6",
+      "name": "Fixed campaign cannot silently replace an unavailable number",
+      "status": "עבר"
+    },
+    {
+      "id": "NUM7",
+      "name": "Agent-specific policy and load policy choose eligible assignments",
+      "status": "עבר"
+    },
+    {
+      "id": "NUM8",
+      "name": "Spam-marked prior number blocks automatic replacement for that lead",
+      "status": "עבר"
+    },
+    {
+      "id": "NUM9",
+      "name": "DNC applies across all outbound numbers",
+      "status": "עבר"
+    },
+    {
+      "id": "NUM10",
+      "name": "No verified ownership or stale verification cannot place a real call",
+      "status": "עבר"
+    },
+    {
+      "id": "NUM11",
+      "name": "Outbound pause preserves callback routing to the previous agent",
+      "status": "עבר"
+    },
+    {
+      "id": "NUM12",
+      "name": "Purchase requires explicit admin confirmation",
+      "status": "עבר"
+    },
+    {
+      "id": "NUM13",
+      "name": "Concurrent purchase clicks charge once; ambiguous success is reconciled",
+      "status": "עבר"
+    },
+    {
+      "id": "NUM14",
+      "name": "Purchase success plus setup failure stays out of dial pool; retry never buys twice",
+      "status": "עבר"
+    },
+    {
+      "id": "NUM15",
+      "name": "Stale or changed price quotes cannot charge",
+      "status": "עבר"
+    },
+    {
+      "id": "NUM16",
+      "name": "Missing remote order after timeout does not authorize another purchase",
+      "status": "עבר"
+    },
+    {
+      "id": "NUM17",
+      "name": "Failed inventory sync marks connection failed and preserves numbers/history",
+      "status": "עבר"
+    },
+    {
+      "id": "NUM18",
+      "name": "Secrets stay server-side, provider 429 is visible, test flag blocks real purchase",
+      "status": "עבר"
+    },
+    {
+      "id": "NUM19",
+      "name": "Manual reputation report is distinct from API check and persists",
+      "status": "עבר"
+    },
+    {
+      "id": "NUM20",
+      "name": "Server throttles management API requests",
+      "status": "עבר"
+    },
+    {
+      "id": "NUM21",
+      "name": "Fresh provider connection and fresh number verification are both required",
+      "status": "עבר"
+    },
+    {
+      "id": "NUM22",
+      "name": "Telnyx adapter checks app, enabled outbound profile, inventory and documented prices",
+      "status": "עבר"
+    },
+    {
+      "id": "NUM23",
+      "name": "Preview call creation atomically stores the selected caller ID and reason",
+      "status": "עבר"
+    },
+    {
+      "id": "NUM24",
+      "name": "Concurrent agents cannot exceed a daily number limit",
+      "status": "עבר"
+    }
+  ]
+}

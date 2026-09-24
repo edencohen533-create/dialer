@@ -1,0 +1,34 @@
+{
+  "mode": "Chromium local mock; purchase dialog uses intercepted UI fixtures",
+  "rows": [
+    {
+      "name": "Hebrew RTL management page, honest disconnected state and spam alert",
+      "status": "עבר",
+      "detail": {
+        "viewport": 1366,
+        "scroll": 1366
+      }
+    },
+    {
+      "name": "Pause persisted on server and survives reload",
+      "status": "עבר"
+    },
+    {
+      "name": "Failed activation is shown and does not claim success",
+      "status": "עבר"
+    },
+    {
+      "name": "Campaign policy saves and reloads",
+      "status": "עבר"
+    },
+    {
+      "name": "Purchase confirmation shows price and requires explicit approval (UI fixtures only)",
+      "status": "עבר",
+      "detail": {
+        "interceptedPurchaseRequests": 1,
+        "realPurchases": 0
+      }
+    }
+  ],
+  "errors": []
+}

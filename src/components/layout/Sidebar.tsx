@@ -7,6 +7,7 @@ import { Badge, cx } from "@/components/ui";
 import { PRESENCE_LABEL } from "@/lib/client/format";
 
 const items = [
+  { href: "/numbers", label: "מספרים יוצאים", roles: ["admin", "manager"], icon: "M4 4h16v16H4zM8 8h8M8 12h8M8 16h4" },
   { href: "/dialer", label: "מסך חיוג", roles: ["agent", "manager", "admin"], icon: "M2 5.5A2.5 2.5 0 0 1 4.5 3h2l2 5-2.5 1.5a11 11 0 0 0 5.5 5.5L13 12.5l5 2v2A2.5 2.5 0 0 1 15.5 19 13.5 13.5 0 0 1 2 5.5z" },
   { href: "/tasks", label: "משימות חזרה", roles: ["agent", "manager", "admin"], icon: "M4 6h16M4 12h16M4 18h10" },
   { href: "/contacts", label: "אנשי קשר", roles: ["agent", "manager", "admin"], icon: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" },

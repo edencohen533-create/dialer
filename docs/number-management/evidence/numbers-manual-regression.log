@@ -1,0 +1,18 @@
+◇ injected env (0) from .env
+PASS M1 הקלדה בפורמט מקומי עם רווח ומקף :: status 200, toE164=+972501234567, phoneRaw=050-123 4567
+PASS M2 פורמט בינלאומי של מספר קיים :: contacts before=1 after=1, name=לקוח ב׳ 1
+PASS M3 מספר עם סוגריים :: 200 +972521000004
+PASS M4 מספר ריק / קצר / לא תקין :: 400:missing_destination 400:invalid_phone 400:invalid_phone 400:invalid_phone
+PASS M5 מספר בינלאומי (ארה״ב) עם מדיניות ברירת מחדל IL בלבד :: 403 country_not_allowed (US)
+PASS M6 לחיצה כפולה מהירה (שתי בקשות במקביל, מפתחות שונים) :: הצלחות=1 (200/409), שיחות חדשות=1
+PASS M7 אותו מפתח idempotency פעמיים :: cmuexuwdr004d8mejvzg16pcy / cmuexuwdr004d8mejvzg16pcy
+PASS M8 חיוג בזמן שיחה פעילה :: 409 call_active
+PASS M9 חיוג מכרטיס לקוח (contactId) :: contact ok=true, from=+97239876543
+PASS M10 מספר יוצא של עסק אחר :: 400 invalid_from_number
+PASS M11 שיחות אחרונות / חיוג חוזר :: 7 רשומות, כולל 0521000005=true
+PASS M12 מספר חסום (DNC) – ידני, מכרטיס ומליד :: 403/dnc_blocked, 403/dnc_blocked
+PASS M13 כפילות מספר בין כרטיסים :: 409 duplicate_phone
+PASS M14 עסק ללא מספר יוצא :: 409 no_eligible_number
+BLOCKED M15 חיוג כשהספק מנותק / מיקרופון חסום :: נבדק ב-UI (ראה U-סדרה); ניתוק ספק אמיתי דורש חשבון Telnyx
+
+SUMMARY {"total":15,"passed":14,"failed":0,"blocked":1,"missing":0}

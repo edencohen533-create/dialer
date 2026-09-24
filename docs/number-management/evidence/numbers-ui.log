@@ -1,0 +1,5 @@
+PASS Hebrew RTL management page, honest disconnected state and spam alert
+PASS Pause persisted on server and survives reload
+PASS Failed activation is shown and does not claim success
+PASS Campaign policy saves and reloads
+PASS Purchase confirmation shows price and requires explicit approval (UI fixtures only)
